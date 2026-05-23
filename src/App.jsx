@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import useBLE from './hooks/useBLE';
 import useAudio, { NOTE_NAMES } from './hooks/useAudio';
 import useSpotify from './hooks/useSpotify';
+import Camera from './components/Camera';
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
@@ -18,10 +19,12 @@ export default function App() {
   const [log, setLog] = useState([]);
   const [watchFwVersion, setWatchFwVersion] = useState(null);
   const [showAbout, setShowAbout] = useState(false);
+  const [cameraVisible, setCameraVisible] = useState(false);
 
   // Refs to break circular dependency between hooks
   const spotifyRef = useRef(null);
   const bleRef = useRef(null);
+  const cameraRef = useRef(null);
 
   // ── Status log ──────────────────────────────────────────────
   const addLog = useCallback((entry) => {
@@ -50,11 +53,33 @@ export default function App() {
         sp?.setVolume(-10);
         addLog('VOLUME_DOWN → -10');
       } else if (cmd === 'TAKE_PHOTO') {
-        window.open(
-          'intent:#Intent;action=android.media.action.IMAGE_CAPTURE;end',
-          '_blank'
-        );
-        addLog('TAKE_PHOTO → Camera opened');
+        const cam = cameraRef.current;
+        if (!cam || !cam.isActive()) {
+          // First press: open camera
+          setCameraVisible(true);
+          // Camera component will auto-open via the openCamera button or we trigger it
+          setTimeout(() => cameraRef.current?.openCamera(), 100);
+          addLog('TAKE_PHOTO → Camera opened');
+        } else {
+          // Second press: capture with 2s countdown
+          cam.takePhotoWithDelay(2);
+          addLog('TAKE_PHOTO → Capturing...');
+        }
+      } else if (cmd === 'START_VIDEO') {
+        const cam = cameraRef.current;
+        if (!cam || !cam.isActive()) {
+          setCameraVisible(true);
+          setTimeout(() => {
+            cameraRef.current?.openCamera();
+            setTimeout(() => cameraRef.current?.startVideo(), 500);
+          }, 100);
+        } else {
+          cam.startVideo();
+        }
+        addLog('START_VIDEO → Recording');
+      } else if (cmd === 'STOP_VIDEO') {
+        cameraRef.current?.stopVideo();
+        addLog('STOP_VIDEO → Saved');
       } else if (cmd.startsWith('NOTE_ON:')) {
         const [, n, v] = cmd.split(':');
         const idx = parseInt(n);
@@ -309,6 +334,34 @@ export default function App() {
           </section>
         )}
       </main>
+
+      {/* ── CAMERA OVERLAY ── */}
+      {cameraVisible && (
+        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm font-medium">Camera</span>
+            <button
+              onClick={() => {
+                cameraRef.current?.stopCamera();
+                setCameraVisible(false);
+              }}
+              className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition text-lg"
+            >
+              &#10005;
+            </button>
+          </div>
+
+          {/* Camera feed */}
+          <div className="flex-1 flex items-center justify-center px-4 pb-4">
+            <Camera
+              ref={cameraRef}
+              onPhoto={() => addLog('Photo saved')}
+              onVideoSaved={() => addLog('Video saved')}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ── FOOTER ── */}
       <footer className="text-center pb-4">
