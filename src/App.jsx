@@ -3,6 +3,8 @@ import useBLE from './hooks/useBLE';
 import useAudio, { NOTE_NAMES } from './hooks/useAudio';
 import useSpotify from './hooks/useSpotify';
 
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
+
 const INSTRUMENT_ICONS = {
   Piano: '\u{1F3B9}',
   Guitar: '\u{1F3B8}',
@@ -14,6 +16,8 @@ const INSTRUMENT_ICONS = {
 export default function App() {
   const audio = useAudio();
   const [log, setLog] = useState([]);
+  const [watchFwVersion, setWatchFwVersion] = useState(null);
+  const [showAbout, setShowAbout] = useState(false);
 
   // Refs to break circular dependency between hooks
   const spotifyRef = useRef(null);
@@ -61,6 +65,10 @@ export default function App() {
       } else if (cmd.startsWith('NOTE_OFF:')) {
         const [, n] = cmd.split(':');
         audio.stopNote(parseInt(n));
+      } else if (cmd.startsWith('VERSION:')) {
+        const ver = cmd.slice(8);
+        setWatchFwVersion(ver);
+        addLog(`VERSION → fw v${ver}`);
       } else if (cmd === 'GET_TIME') {
         const ts = Math.floor(Date.now() / 1000);
         bl?.sendToWatch(`TIME:${ts}`);
@@ -257,9 +265,62 @@ export default function App() {
       </main>
 
       {/* ── FOOTER ── */}
-      <footer className="text-center text-[10px] text-zinc-700 pb-4">
-        Sling Watch Companion v0.1
+      <footer className="text-center pb-4">
+        <button
+          onClick={() => setShowAbout(true)}
+          className="text-[10px] text-zinc-700 hover:text-zinc-500 transition"
+        >
+          Sling App v{APP_VERSION}
+          {watchFwVersion && (
+            <span className="ml-2">| Watch fw: v{watchFwVersion}</span>
+          )}
+        </button>
       </footer>
+
+      {/* ── ABOUT OVERLAY ── */}
+      {showAbout && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-6"
+          onClick={() => setShowAbout(false)}
+        >
+          <div
+            className="bg-zinc-900 rounded-2xl p-6 max-w-sm w-full space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-center">About Sling</h2>
+            <div className="space-y-2 text-sm text-zinc-400">
+              <div className="flex justify-between">
+                <span>App version</span>
+                <span className="text-white">v{APP_VERSION}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Watch firmware</span>
+                <span className="text-white">
+                  {watchFwVersion ? `v${watchFwVersion}` : 'Not connected'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>BLE</span>
+                <span className="text-white">
+                  {ble.connected ? ble.deviceName : 'Disconnected'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Spotify</span>
+                <span className="text-white">
+                  {spotify.connected ? 'Connected' : 'Not linked'}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowAbout(false)}
+              className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm font-medium transition mt-2"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
