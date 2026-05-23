@@ -195,9 +195,56 @@ export default function App() {
           <h2 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest mb-2">
             Spotify
           </h2>
-          {spotify.connected ? (
-            spotify.currentTrack ? (
-              <div className="bg-zinc-900 rounded-2xl p-4 flex items-center gap-4">
+
+          {/* STATE 1: disconnected */}
+          {spotify.spotifyState === 'disconnected' && (
+            <button
+              onClick={spotify.login}
+              className="w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black rounded-2xl font-semibold text-sm transition"
+            >
+              Connect Spotify
+            </button>
+          )}
+
+          {/* STATE 2: idle — logged in, nothing playing */}
+          {spotify.spotifyState === 'idle' && (
+            <div className="bg-zinc-900 rounded-2xl p-5 flex flex-col items-center gap-3">
+              <span className="text-4xl text-zinc-600">&#9835;</span>
+              <p className="text-sm text-zinc-500">
+                Open Spotify and play something
+              </p>
+              <div className="flex gap-6 mt-1">
+                <button
+                  onClick={() => window.open('spotify:', '_blank')}
+                  className="text-xl text-zinc-700 active:text-zinc-500 transition"
+                >
+                  &#9198;
+                </button>
+                <button
+                  onClick={() => window.open('spotify:', '_blank')}
+                  className="text-xl text-zinc-700 active:text-zinc-500 transition"
+                >
+                  &#9654;
+                </button>
+                <button
+                  onClick={() => window.open('spotify:', '_blank')}
+                  className="text-xl text-zinc-700 active:text-zinc-500 transition"
+                >
+                  &#9197;
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STATE 3 & 4: playing / paused — has track */}
+          {(spotify.spotifyState === 'playing' ||
+            spotify.spotifyState === 'paused') && (
+            <div
+              className={`bg-zinc-900 rounded-2xl p-4 transition-opacity ${
+                spotify.spotifyState === 'paused' ? 'opacity-60' : 'opacity-100'
+              }`}
+            >
+              <div className="flex items-center gap-4">
                 {spotify.currentTrack.albumArt && (
                   <img
                     src={spotify.currentTrack.albumArt}
@@ -212,7 +259,7 @@ export default function App() {
                   <p className="text-xs text-zinc-400 truncate mt-0.5">
                     {spotify.currentTrack.artist}
                   </p>
-                  <div className="flex gap-4 mt-3">
+                  <div className="flex gap-6 mt-3">
                     <button
                       onClick={spotify.prevTrack}
                       className="text-lg hover:text-green-400 transition"
@@ -223,7 +270,7 @@ export default function App() {
                       onClick={spotify.playPause}
                       className="text-lg hover:text-green-400 transition"
                     >
-                      {spotify.currentTrack.isPlaying ? '⏸' : '▶'}
+                      {spotify.spotifyState === 'playing' ? '⏸' : '▶'}
                     </button>
                     <button
                       onClick={spotify.nextTrack}
@@ -234,18 +281,17 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="bg-zinc-900 rounded-2xl p-4 text-sm text-zinc-500">
-                No track playing
+
+              {/* ── Progress bar ── */}
+              <div className="mt-3 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-green-500 rounded-full transition-none ${
+                    spotify.spotifyState === 'playing' ? '' : ''
+                  }`}
+                  style={{ width: `${(spotify.progress * 100).toFixed(1)}%` }}
+                />
               </div>
-            )
-          ) : (
-            <button
-              onClick={spotify.login}
-              className="w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black rounded-2xl font-semibold text-sm transition"
-            >
-              Connect Spotify
-            </button>
+            </div>
           )}
         </section>
 

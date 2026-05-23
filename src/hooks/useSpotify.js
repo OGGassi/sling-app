@@ -56,10 +56,14 @@ export default function useSpotify(sendToWatch) {
   const [connected, setConnected] = useState(false);
   const [currentTrack, setCurrentTrack] = useState(null);
   const [volume, setVolumeState] = useState(50);
+  const [progress, setProgress] = useState(0);   // 0–1 fraction
+  const [duration, setDuration] = useState(0);    // ms
   const tokenRef = useRef(null);
   const refreshRef = useRef(null);
   const pollRef = useRef(null);
   const refreshTimerRef = useRef(null);
+  const progressRef = useRef(null);
+  const progressStartRef = useRef({ ts: 0, pos: 0 });
 
   // ── Refresh token ───────────────────────────────────────────
 
@@ -147,6 +151,26 @@ export default function useSpotify(sendToWatch) {
 
   // ── Playback queries ────────────────────────────────────────
 
+  // ── Local progress ticker (runs every 500ms while playing) ───
+
+  const startProgressTicker = useCallback((posMs, durMs) => {
+    cancelAnimationFrame(progressRef.current);
+    progressStartRef.current = { ts: Date.now(), pos: posMs };
+    const tick = () => {
+      const elapsed = Date.now() - progressStartRef.current.ts;
+      const cur = Math.min(progressStartRef.current.pos + elapsed, durMs);
+      setProgress(durMs > 0 ? cur / durMs : 0);
+      if (cur < durMs) {
+        progressRef.current = requestAnimationFrame(tick);
+      }
+    };
+    tick();
+  }, []);
+
+  const stopProgressTicker = useCallback(() => {
+    cancelAnimationFrame(progressRef.current);
+  }, []);
+
   const getCurrentTrack = useCallback(async () => {
     const data = await api(`${API}/currently-playing`);
     if (data?.item) {
@@ -159,6 +183,17 @@ export default function useSpotify(sendToWatch) {
       setCurrentTrack(track);
       if (data.device) setVolumeState(data.device.volume_percent);
 
+      const durMs = data.item.duration_ms || 0;
+      const posMs = data.progress_ms || 0;
+      setDuration(durMs);
+
+      if (data.is_playing) {
+        startProgressTicker(posMs, durMs);
+      } else {
+        stopProgressTicker();
+        setProgress(durMs > 0 ? posMs / durMs : 0);
+      }
+
       // Push track info to watch over BLE
       if (sendToWatch) {
         sendToWatch(`TRACK:${track.song}:${track.artist}`);
@@ -166,8 +201,11 @@ export default function useSpotify(sendToWatch) {
 
       return track;
     }
+    setCurrentTrack(null);
+    stopProgressTicker();
+    setProgress(0);
     return null;
-  }, [api, sendToWatch]);
+  }, [api, sendToWatch, startProgressTicker, stopProgressTicker]);
 
   // ── Playback controls ───────────────────────────────────────
 
@@ -312,10 +350,23 @@ export default function useSpotify(sendToWatch) {
     return () => clearInterval(pollRef.current);
   }, [connected, getCurrentTrack]);
 
+  // ── Derived state ────────────────────────────────────────────
+
+  const spotifyState = !connected
+    ? 'disconnected'
+    : !currentTrack
+      ? 'idle'
+      : currentTrack.isPlaying
+        ? 'playing'
+        : 'paused';
+
   return {
     connected,
     currentTrack,
     volume,
+    progress,
+    duration,
+    spotifyState,
     login,
     logout,
     playPause,
