@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import useBLE from './hooks/useBLE';
 import useAudio, { NOTE_NAMES } from './hooks/useAudio';
 import useSpotify from './hooks/useSpotify';
@@ -13,9 +13,11 @@ const INSTRUMENT_ICONS = {
 
 export default function App() {
   const audio = useAudio();
-  const spotify = useSpotify();
-  const trackSendRef = useRef(null);
   const [log, setLog] = useState([]);
+
+  // Refs to break circular dependency between hooks
+  const spotifyRef = useRef(null);
+  const bleRef = useRef(null);
 
   // ── Status log ──────────────────────────────────────────────
   const addLog = useCallback((entry) => {
@@ -25,20 +27,23 @@ export default function App() {
   // ── Command handler (watch → phone via STATUS notifications) ─
   const handleCommand = useCallback(
     (cmd) => {
+      const sp = spotifyRef.current;
+      const bl = bleRef.current;
+
       if (cmd === 'PLAY_PAUSE') {
-        spotify.playPause();
+        sp?.playPause();
         addLog('PLAY_PAUSE → Spotify toggled');
       } else if (cmd === 'NEXT_TRACK') {
-        spotify.nextTrack();
+        sp?.nextTrack();
         addLog('NEXT_TRACK → Spotify next');
       } else if (cmd === 'PREV_TRACK') {
-        spotify.prevTrack();
+        sp?.prevTrack();
         addLog('PREV_TRACK → Spotify prev');
       } else if (cmd === 'VOLUME_UP') {
-        spotify.setVolume(10);
+        sp?.setVolume(10);
         addLog('VOLUME_UP → +10');
       } else if (cmd === 'VOLUME_DOWN') {
-        spotify.setVolume(-10);
+        sp?.setVolume(-10);
         addLog('VOLUME_DOWN → -10');
       } else if (cmd === 'TAKE_PHOTO') {
         window.open(
@@ -58,28 +63,20 @@ export default function App() {
         audio.stopNote(parseInt(n));
       } else if (cmd === 'GET_TIME') {
         const ts = Math.floor(Date.now() / 1000);
-        ble.sendToWatch(`TIME:${ts}`);
+        bl?.sendToWatch(`TIME:${ts}`);
         addLog('GET_TIME → Time synced');
       }
     },
-    [audio, spotify, addLog]
+    [audio, addLog]
   );
 
+  // Initialize hooks — BLE first, then Spotify with sendToWatch
   const ble = useBLE({ onCommand: handleCommand });
+  const spotify = useSpotify(ble.sendToWatch);
 
-  // ── Send track info to watch every 3 s (write to CMD char) ──
-  useEffect(() => {
-    if (!ble.connected || !spotify.currentTrack) return;
-    clearInterval(trackSendRef.current);
-
-    const send = () => {
-      const { song, artist } = spotify.currentTrack;
-      ble.sendToWatch(`TRACK:${song}:${artist}`);
-    };
-    send();
-    trackSendRef.current = setInterval(send, 3000);
-    return () => clearInterval(trackSendRef.current);
-  }, [ble.connected, ble.sendToWatch, spotify.currentTrack]);
+  // Keep refs current
+  spotifyRef.current = spotify;
+  bleRef.current = ble;
 
   // ── UI ──────────────────────────────────────────────────────
   return (
@@ -109,7 +106,17 @@ export default function App() {
               spotify.connected ? 'bg-green-500' : 'bg-zinc-600'
             }`}
           />
-          Spotify: {spotify.connected ? 'Connected' : 'Login'}
+          Spotify:{' '}
+          {spotify.connected ? (
+            <button
+              onClick={spotify.logout}
+              className="text-green-400 hover:text-white transition"
+            >
+              Connected
+            </button>
+          ) : (
+            'Login'
+          )}
         </span>
       </div>
 
