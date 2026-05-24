@@ -1,99 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import * as Tone from 'tone';
 
-// C3 through B4 — two full octaves (24 notes)
-const NOTE_FREQ = [
-  130.81, 138.59, 146.83, 155.56, 164.81, 174.61, // C3  C#3 D3  D#3 E3  F3
-  185.00, 196.00, 207.65, 220.00, 233.08, 246.94, // F#3 G3  G#3 A3  A#3 B3
-  261.63, 277.18, 293.66, 311.13, 329.63, 349.23, // C4  C#4 D4  D#4 E4  F4
-  369.99, 392.00, 415.30, 440.00, 466.16, 493.88, // F#4 G4  G#4 A4  A#4 B4
-];
+// ── Note names: 2 octaves C3-B4 (24 notes) ───────────────────
 
 export const NOTE_NAMES = [
   'C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','A#3','B3',
   'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
 ];
-
-// ── Instrument presets with multi-harmonic + filter ───────────
-
-const PRESETS = {
-  Piano: {
-    type: 'triangle',
-    attack: 0.01,
-    decay: 0.4,
-    sustain: 0.2,
-    release: 0.8,
-    harmonics: [
-      { ratio: 2, gain: 0.3 },
-      { ratio: 3, gain: 0.15 },
-      { ratio: 4, gain: 0.08 },
-    ],
-    filterType: 'lowpass',
-    filterFreq: 3000,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-  },
-  Guitar: {
-    type: 'sawtooth',
-    attack: 0.005,
-    decay: 0.2,
-    sustain: 0.1,
-    release: 0.4,
-    harmonics: [
-      { ratio: 2, gain: 0.4 },
-      { ratio: 3, gain: 0.2 },
-    ],
-    filterType: 'lowpass',
-    filterFreq: 2000,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-  },
-  Viola: {
-    type: 'sawtooth',
-    attack: 0.15,
-    decay: 0.1,
-    sustain: 0.9,
-    release: 0.5,
-    harmonics: [
-      { ratio: 2, gain: 0.5 },
-      { ratio: 3, gain: 0.25 },
-      { ratio: 5, gain: 0.1 },
-    ],
-    filterType: 'lowpass',
-    filterFreq: 1500,
-    // Built-in vibrato (bowed string)
-    vibratoRate: 5.5,
-    vibratoDepth: 12,
-  },
-  Flute: {
-    type: 'sine',
-    attack: 0.1,
-    decay: 0.05,
-    sustain: 0.95,
-    release: 0.3,
-    harmonics: [],
-    filterType: 'highpass',
-    filterFreq: 8000,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-  },
-  Pantam: {
-    type: 'sine',
-    attack: 0.001,
-    decay: 0.8,
-    sustain: 0.0,
-    release: 2.0,
-    harmonics: [
-      { ratio: 2.756, gain: 0.5 },
-      { ratio: 5.404, gain: 0.25 },
-    ],
-    filterType: 'bandpass',
-    filterFreq: 800,
-    vibratoRate: 0,
-    vibratoDepth: 0,
-  },
-};
-
-const MAX_POLYPHONY = 5;
 
 // ── Theme accent colors per instrument ────────────────────────
 
@@ -105,204 +18,240 @@ export const INSTRUMENT_COLORS = {
   Pantam: '#FFD700',
 };
 
+// ── Synth factory per instrument ──────────────────────────────
+
+function createSynth(name) {
+  switch (name) {
+    case 'Piano': {
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle8' },
+        envelope: {
+          attack: 0.02,
+          decay: 0.5,
+          sustain: 0.3,
+          release: 1.2,
+        },
+      }).toDestination();
+    }
+
+    case 'Guitar': {
+      const synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'fmsawtooth', modulationIndex: 3 },
+        envelope: {
+          attack: 0.005,
+          decay: 0.15,
+          sustain: 0.05,
+          release: 0.4,
+        },
+      });
+      const filter = new Tone.Filter(2000, 'lowpass').toDestination();
+      synth.connect(filter);
+      return synth;
+    }
+
+    case 'Viola': {
+      const synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'sawtooth4' },
+        envelope: {
+          attack: 0.18,
+          decay: 0.1,
+          sustain: 0.9,
+          release: 0.7,
+        },
+      });
+      const chorus = new Tone.Chorus(4, 2.5, 0.5).toDestination();
+      chorus.start();
+      synth.connect(chorus);
+      return synth;
+    }
+
+    case 'Flute': {
+      const synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'sine' },
+        envelope: {
+          attack: 0.1,
+          decay: 0.05,
+          sustain: 0.95,
+          release: 0.5,
+        },
+      });
+      const reverb = new Tone.Reverb(1.5).toDestination();
+      synth.connect(reverb);
+      return synth;
+    }
+
+    case 'Pantam': {
+      // MetalSynth can't be wrapped in PolySynth, so we create a
+      // pool of MonoSynths tuned for metallic timbre instead
+      const synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'sine' },
+        envelope: {
+          attack: 0.001,
+          decay: 1.4,
+          sustain: 0.0,
+          release: 0.2,
+        },
+      });
+      // Add a second partial at 2.756x for metallic shimmer
+      const synth2 = new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'sine' },
+        envelope: {
+          attack: 0.001,
+          decay: 1.0,
+          sustain: 0.0,
+          release: 0.15,
+        },
+      });
+      const gain2 = new Tone.Gain(0.4).toDestination();
+      synth2.connect(gain2);
+      synth.toDestination();
+      // Return both synths as a combined object
+      return { triggerAttack: (n, t, v) => {
+        synth.triggerAttack(n, t, v);
+        // Shift second partial up by ~17.5 semitones (2.756 ratio)
+        const shifted = Array.isArray(n)
+          ? n.map(note => Tone.Frequency(note).toFrequency() * 2.756)
+          : Tone.Frequency(n).toFrequency() * 2.756;
+        synth2.triggerAttack(
+          Array.isArray(shifted) ? shifted.map(f => f) : shifted,
+          t, (v || 1) * 0.4
+        );
+      }, triggerRelease: (n, t) => {
+        synth.triggerRelease(n, t);
+        // Release second synth too — use same notes transposed
+        const shifted = Array.isArray(n)
+          ? n.map(note => Tone.Frequency(note).toFrequency() * 2.756)
+          : Tone.Frequency(n).toFrequency() * 2.756;
+        synth2.triggerRelease(
+          Array.isArray(shifted) ? shifted : [shifted],
+          t
+        );
+      }, releaseAll: () => {
+        synth.releaseAll();
+        synth2.releaseAll();
+      }, dispose: () => {
+        synth.dispose();
+        synth2.dispose();
+        gain2.dispose();
+      }};
+    }
+
+    default:
+      return new Tone.PolySynth(Tone.Synth).toDestination();
+  }
+}
+
+const INSTRUMENT_LIST = ['Piano', 'Guitar', 'Viola', 'Flute', 'Pantam'];
+
 // ── Hook ──────────────────────────────────────────────────────
 
 export default function useAudio() {
-  const [instrument, setInstrument] = useState('Piano');
-  const ctxRef = useRef(null);
-  const activeRef = useRef(new Map()); // noteIndex → { oscillators, gain, lfoNodes, inst }
+  const [instrument, setInstrumentState] = useState('Piano');
+  const synthRef = useRef(null);
+  const activeRef = useRef({}); // noteIndex → noteName
+  const effectsRef = useRef([]); // track effects for disposal
 
-  const getCtx = useCallback(() => {
-    if (!ctxRef.current) ctxRef.current = new AudioContext();
-    if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
-    return ctxRef.current;
-  }, []);
+  // ── Initialize / swap synth ─────────────────────────────────
 
-  // ── Stop all notes (cleanup stuck notes) ────────────────────
-
-  const stopAllNotes = useCallback(() => {
-    const ctx = ctxRef.current;
-    const now = ctx ? ctx.currentTime : 0;
-    activeRef.current.forEach((entry) => {
-      entry.oscillators.forEach((osc) => {
-        try { osc.stop(now + 0.05); } catch { /* ok */ }
-      });
-      entry.lfoNodes.forEach((lfo) => {
-        try { lfo.stop(now + 0.05); } catch { /* ok */ }
-      });
+  const initSynth = useCallback(async (name) => {
+    // Dispose previous
+    if (synthRef.current) {
+      try { synthRef.current.releaseAll(); } catch { /* ok */ }
+      try { synthRef.current.dispose(); } catch { /* ok */ }
+    }
+    effectsRef.current.forEach((e) => {
+      try { e.dispose(); } catch { /* ok */ }
     });
-    activeRef.current.clear();
+    effectsRef.current = [];
+
+    // Ensure audio context started
+    await Tone.start();
+
+    synthRef.current = createSynth(name);
+    activeRef.current = {};
   }, []);
 
   // ── Play a note ─────────────────────────────────────────────
-  //   pitchBend: -12..+12 semitones → cents
-  //   vibrato:   0..127 → frequency LFO
-  //   tremolo:   0..127 → amplitude LFO
 
   const playNote = useCallback(
-    (noteIndex, velocity = 100, pitchBend = 0, vibratoAmt = 0, tremoloAmt = 0) => {
-      const ctx = getCtx();
-      const baseFreq = NOTE_FREQ[noteIndex];
-      if (baseFreq == null) return;
+    (noteIndex, velocity = 100, pitchBend = 0, _vibrato = 0, _tremolo = 0) => {
+      if (!synthRef.current) return;
+      if (noteIndex < 0 || noteIndex >= NOTE_NAMES.length) return;
 
-      // Guard: stop stuck notes if polyphony exceeded
-      if (activeRef.current.size >= MAX_POLYPHONY) {
-        stopAllNotes();
+      const noteName = NOTE_NAMES[noteIndex];
+      const vol = Math.max(0.01, velocity / 127);
+
+      // Stop same note if already playing to prevent stacking
+      if (activeRef.current[noteIndex]) {
+        try {
+          synthRef.current.triggerRelease(activeRef.current[noteIndex], Tone.now());
+        } catch { /* ok */ }
       }
 
-      // Stop same note if already playing
-      if (activeRef.current.has(noteIndex)) {
-        const prev = activeRef.current.get(noteIndex);
-        const now = ctx.currentTime;
-        prev.oscillators.forEach((o) => { try { o.stop(now + 0.02); } catch { /* ok */ } });
-        prev.lfoNodes.forEach((l) => { try { l.stop(now + 0.02); } catch { /* ok */ } });
-        activeRef.current.delete(noteIndex);
+      // Apply pitch bend by shifting the note frequency
+      let playNote = noteName;
+      if (pitchBend !== 0) {
+        const baseFreq = Tone.Frequency(noteName).toFrequency();
+        playNote = baseFreq * Math.pow(2, (pitchBend * 100) / 1200);
       }
 
-      const inst = PRESETS[instrument];
-      const vol = (velocity / 127) * 0.5;
-      const now = ctx.currentTime;
-
-      // Pitch bend: map semitones to frequency multiplier
-      const freq = baseFreq * Math.pow(2, (pitchBend * 100) / 1200);
-
-      // ── Filter for character ──
-      const filter = ctx.createBiquadFilter();
-      filter.type = inst.filterType;
-      filter.frequency.value = inst.filterFreq;
-      if (inst.filterType === 'bandpass') filter.Q.value = 2;
-
-      // ── Master gain (ADSR envelope) ──
-      const gainNode = ctx.createGain();
-      gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(vol, now + inst.attack);
-      gainNode.gain.linearRampToValueAtTime(
-        inst.sustain * vol,
-        now + inst.attack + inst.decay
-      );
-
-      filter.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      const oscillators = [];
-      const lfoNodes = [];
-
-      // ── Primary oscillator ──
-      const osc = ctx.createOscillator();
-      osc.type = inst.type;
-      osc.frequency.value = freq;
-      osc.connect(filter);
-      osc.start(now);
-      oscillators.push(osc);
-
-      // ── Harmonic oscillators for richness ──
-      inst.harmonics.forEach((h) => {
-        const harmOsc = ctx.createOscillator();
-        harmOsc.type = inst.type;
-        harmOsc.frequency.value = freq * h.ratio;
-
-        const harmGain = ctx.createGain();
-        harmGain.gain.setValueAtTime(0, now);
-        harmGain.gain.linearRampToValueAtTime(h.gain * vol, now + inst.attack);
-        harmGain.gain.linearRampToValueAtTime(
-          h.gain * vol * inst.sustain,
-          now + inst.attack + inst.decay
-        );
-
-        harmOsc.connect(harmGain);
-        harmGain.connect(filter);
-        harmOsc.start(now);
-        oscillators.push(harmOsc);
-      });
-
-      // ── Vibrato LFO (frequency modulation) ──
-      const hasPresetVib = inst.vibratoRate > 0;
-      const hasInputVib = vibratoAmt > 10;
-
-      if (hasPresetVib || hasInputVib) {
-        const vibratoLfo = ctx.createOscillator();
-        vibratoLfo.type = 'sine';
-
-        const rate = hasInputVib
-          ? 5 + (vibratoAmt / 127) * 3
-          : inst.vibratoRate;
-        const depth = hasInputVib
-          ? freq * 0.02 * (vibratoAmt / 127)
-          : freq * 0.005;
-
-        vibratoLfo.frequency.value = rate;
-
-        const vibratoGain = ctx.createGain();
-        vibratoGain.gain.value = depth;
-
-        vibratoLfo.connect(vibratoGain);
-        // Modulate frequency of all oscillators
-        oscillators.forEach((o) => vibratoGain.connect(o.frequency));
-        vibratoLfo.start(now);
-        lfoNodes.push(vibratoLfo);
+      try {
+        synthRef.current.triggerAttack(playNote, Tone.now(), vol);
+        activeRef.current[noteIndex] = playNote;
+      } catch (e) {
+        console.error('Tone playNote error:', e);
       }
-
-      // ── Tremolo LFO (amplitude modulation) ──
-      if (tremoloAmt > 10) {
-        const tremoloLfo = ctx.createOscillator();
-        tremoloLfo.type = 'sine';
-        tremoloLfo.frequency.value = 4 + (tremoloAmt / 127) * 4;
-
-        const tremoloDepth = ctx.createGain();
-        tremoloDepth.gain.value = (tremoloAmt / 127) * 0.3;
-
-        tremoloLfo.connect(tremoloDepth);
-        tremoloDepth.connect(gainNode.gain);
-        tremoloLfo.start(now);
-        lfoNodes.push(tremoloLfo);
-      }
-
-      activeRef.current.set(noteIndex, {
-        oscillators,
-        lfoNodes,
-        gain: gainNode,
-        inst,
-      });
     },
-    [instrument, getCtx, stopAllNotes]
+    []
   );
 
   // ── Stop a note ─────────────────────────────────────────────
 
-  const stopNote = useCallback(
-    (noteIndex) => {
-      const entry = activeRef.current.get(noteIndex);
-      if (!entry) return;
+  const stopNote = useCallback((noteIndex) => {
+    if (!synthRef.current) return;
+    const note = activeRef.current[noteIndex];
+    if (note != null) {
+      try {
+        synthRef.current.triggerRelease(note, Tone.now());
+      } catch { /* ok */ }
+      delete activeRef.current[noteIndex];
+    }
+  }, []);
 
-      const ctx = getCtx();
-      const now = ctx.currentTime;
-      const release = entry.inst.release;
-      const stopTime = now + release;
+  // ── Stop all notes ──────────────────────────────────────────
 
-      // Fade out gain
-      entry.gain.gain.cancelScheduledValues(now);
-      entry.gain.gain.setValueAtTime(entry.gain.gain.value, now);
-      entry.gain.gain.linearRampToValueAtTime(0, stopTime);
+  const stopAllNotes = useCallback(() => {
+    if (!synthRef.current) return;
+    try { synthRef.current.releaseAll(); } catch { /* ok */ }
+    activeRef.current = {};
+  }, []);
 
-      // Schedule oscillator stops
-      entry.oscillators.forEach((osc) => {
-        try { osc.stop(stopTime + 0.01); } catch { /* ok */ }
-      });
-      entry.lfoNodes.forEach((lfo) => {
-        try { lfo.stop(stopTime + 0.01); } catch { /* ok */ }
-      });
+  // ── Change instrument ───────────────────────────────────────
 
-      activeRef.current.delete(noteIndex);
+  const setInstrument = useCallback(
+    async (name) => {
+      if (!INSTRUMENT_LIST.includes(name)) return;
+      stopAllNotes();
+      setInstrumentState(name);
+      await initSynth(name);
     },
-    [getCtx]
+    [initSynth, stopAllNotes]
   );
 
-  // Cleanup on instrument change — stop all notes
+  // ── Initialize on mount ─────────────────────────────────────
+
   useEffect(() => {
+    initSynth('Piano');
     return () => {
-      stopAllNotes();
+      if (synthRef.current) {
+        try { synthRef.current.releaseAll(); } catch { /* ok */ }
+        try { synthRef.current.dispose(); } catch { /* ok */ }
+      }
+      effectsRef.current.forEach((e) => {
+        try { e.dispose(); } catch { /* ok */ }
+      });
     };
-  }, [instrument, stopAllNotes]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     instrument,
@@ -310,6 +259,6 @@ export default function useAudio() {
     playNote,
     stopNote,
     stopAllNotes,
-    instruments: Object.keys(PRESETS),
+    instruments: INSTRUMENT_LIST,
   };
 }

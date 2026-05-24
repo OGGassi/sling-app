@@ -4,6 +4,7 @@ import useAudio, { NOTE_NAMES, INSTRUMENT_COLORS } from './hooks/useAudio';
 import useSpotify from './hooks/useSpotify';
 import Camera from './components/Camera';
 import InstrumentVisualizer from './components/InstrumentVisualizer';
+import { InstrumentSVGs } from './components/InstrumentIcons';
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
@@ -16,46 +17,6 @@ function Icon({ name, className = '', style }) {
     </span>
   );
 }
-
-// ── Custom SVG instrument icons ───────────────────────────────
-
-const INST_SVG = {
-  Piano: (
-    <Icon name="piano" />
-  ),
-  Guitar: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <ellipse cx="12" cy="16" rx="5" ry="6" />
-      <ellipse cx="12" cy="8" rx="3" ry="3.5" />
-      <line x1="12" y1="4.5" x2="12" y2="2" />
-      <line x1="9" y1="2" x2="15" y2="2" />
-      <circle cx="12" cy="16" r="1.5" fill="currentColor" />
-    </svg>
-  ),
-  Viola: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <path d="M12 3 C9 3 7 5 7 8 C7 11 9 12 9 14 C9 16 7 17 7 19 C7 21 9 22 12 22 C15 22 17 21 17 19 C17 17 15 16 15 14 C15 12 17 11 17 8 C17 5 15 3 12 3Z" />
-      <line x1="12" y1="3" x2="12" y2="1" />
-      <circle cx="12" cy="13" r="1.5" fill="currentColor" />
-    </svg>
-  ),
-  Flute: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <line x1="3" y1="12" x2="21" y2="12" />
-      <circle cx="7" cy="12" r="1.5" />
-      <circle cx="11" cy="12" r="1.5" />
-      <circle cx="15" cy="12" r="1.5" />
-      <path d="M21 12 C21 10 22 9 22 8" />
-    </svg>
-  ),
-  Pantam: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-      <ellipse cx="12" cy="13" rx="9" ry="5" />
-      <ellipse cx="12" cy="13" rx="9" ry="5" transform="rotate(-30 12 13)" />
-      <circle cx="12" cy="13" r="2" />
-    </svg>
-  ),
-};
 
 // ── App ───────────────────────────────────────────────────────
 
@@ -152,6 +113,7 @@ export default function App() {
         const name = cmd.slice(11);
         if (audio.instruments.includes(name)) {
           audio.setInstrument(name);
+          setActiveNotes([]);
           addLog(`INSTRUMENT → ${name}`);
         }
       } else if (cmd.startsWith('VERSION:')) {
@@ -283,21 +245,26 @@ export default function App() {
               return (
                 <button
                   key={name}
-                  onClick={() => audio.setInstrument(name)}
+                  onClick={() => {
+                    audio.setInstrument(name);
+                    setActiveNotes([]);
+                    // Tell watch about instrument change
+                    bleRef.current?.sendToWatch(`INSTRUMENT:${name}`);
+                  }}
                   className="flex flex-col items-center gap-1.5 transition"
                 >
                   <div
-                    className="w-12 h-12 rounded-full flex items-center justify-center transition-all"
+                    className="w-[52px] h-[52px] rounded-full flex items-center justify-center transition-all"
                     style={{
-                      background: isActive ? 'transparent' : '#222222',
+                      background: isActive ? '#111' : '#0A0A0A',
                       border: isActive
                         ? `2px solid ${color}`
-                        : '2px solid transparent',
-                      boxShadow: isActive ? `0 0 12px ${color}40` : 'none',
+                        : '2px solid #222',
+                      boxShadow: isActive ? `0 0 14px ${color}40` : 'none',
                       color: isActive ? color : '#555555',
                     }}
                   >
-                    {INST_SVG[name]}
+                    {InstrumentSVGs[name]}
                   </div>
                   <span
                     className="text-[10px] font-medium"
