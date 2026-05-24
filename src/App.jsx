@@ -1,17 +1,63 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import useBLE from './hooks/useBLE';
-import useAudio, { NOTE_NAMES, INSTRUMENT_COLORS, INSTRUMENT_ICONS } from './hooks/useAudio';
+import useAudio, { NOTE_NAMES, INSTRUMENT_COLORS } from './hooks/useAudio';
 import useSpotify from './hooks/useSpotify';
 import Camera from './components/Camera';
+import InstrumentVisualizer from './components/InstrumentVisualizer';
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
-// Helper: Material Icon component
-function Icon({ name, className = '' }) {
+// ── Helper: Material Icon ─────────────────────────────────────
+
+function Icon({ name, className = '', style }) {
   return (
-    <span className={`material-icons-outlined ${className}`}>{name}</span>
+    <span className={`material-icons-outlined ${className}`} style={style}>
+      {name}
+    </span>
   );
 }
+
+// ── Custom SVG instrument icons ───────────────────────────────
+
+const INST_SVG = {
+  Piano: (
+    <Icon name="piano" />
+  ),
+  Guitar: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <ellipse cx="12" cy="16" rx="5" ry="6" />
+      <ellipse cx="12" cy="8" rx="3" ry="3.5" />
+      <line x1="12" y1="4.5" x2="12" y2="2" />
+      <line x1="9" y1="2" x2="15" y2="2" />
+      <circle cx="12" cy="16" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+  Viola: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <path d="M12 3 C9 3 7 5 7 8 C7 11 9 12 9 14 C9 16 7 17 7 19 C7 21 9 22 12 22 C15 22 17 21 17 19 C17 17 15 16 15 14 C15 12 17 11 17 8 C17 5 15 3 12 3Z" />
+      <line x1="12" y1="3" x2="12" y2="1" />
+      <circle cx="12" cy="13" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+  Flute: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <circle cx="7" cy="12" r="1.5" />
+      <circle cx="11" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <path d="M21 12 C21 10 22 9 22 8" />
+    </svg>
+  ),
+  Pantam: (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+      <ellipse cx="12" cy="13" rx="9" ry="5" />
+      <ellipse cx="12" cy="13" rx="9" ry="5" transform="rotate(-30 12 13)" />
+      <circle cx="12" cy="13" r="2" />
+    </svg>
+  ),
+};
+
+// ── App ───────────────────────────────────────────────────────
 
 export default function App() {
   const audio = useAudio();
@@ -19,6 +65,7 @@ export default function App() {
   const [watchFwVersion, setWatchFwVersion] = useState(null);
   const [showAbout, setShowAbout] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
+  const [activeNotes, setActiveNotes] = useState([]);
 
   // Refs to break circular dependency between hooks
   const spotifyRef = useRef(null);
@@ -85,20 +132,22 @@ export default function App() {
         cameraRef.current?.stopVideo();
         addLog('STOP_VIDEO → Saved');
       } else if (cmd.startsWith('NOTE_ON:')) {
-        // Extended 6-byte packet: NOTE_ON:note:velocity:pitchBend:vibrato:tremolo
         const parts = cmd.split(':');
-        const idx = parseInt(parts[1]);
+        const note = parseInt(parts[1]);
         const vel = parseInt(parts[2]) || 100;
         const bend = parseInt(parts[3]) || 0;
         const vib = parseInt(parts[4]) || 0;
         const trem = parseInt(parts[5]) || 0;
-        audio.playNote(idx, vel, bend, vib, trem);
-        addLog(
-          `NOTE ${NOTE_NAMES[idx] || '?'} → ${audio.instrument}`
-        );
+        audio.playNote(note, vel, bend, vib, trem);
+        setActiveNotes((prev) => [
+          ...prev.filter((n) => n.note !== note),
+          { note, velocity: vel, pitchBend: bend, vibrato: vib },
+        ]);
+        addLog(`NOTE ${NOTE_NAMES[note] || '?'} → ${audio.instrument}`);
       } else if (cmd.startsWith('NOTE_OFF:')) {
-        const [, n] = cmd.split(':');
-        audio.stopNote(parseInt(n));
+        const note = parseInt(cmd.split(':')[1]);
+        audio.stopNote(note);
+        setActiveNotes((prev) => prev.filter((n) => n.note !== note));
       } else if (cmd.startsWith('INSTRUMENT:')) {
         const name = cmd.slice(11);
         if (audio.instruments.includes(name)) {
@@ -126,11 +175,20 @@ export default function App() {
   spotifyRef.current = spotify;
   bleRef.current = ble;
 
+  // Stop all notes on BLE disconnect
+  useEffect(() => {
+    if (!ble.connected) {
+      audio.stopAllNotes();
+      setActiveNotes([]);
+    }
+  }, [ble.connected, audio.stopAllNotes]);
+
   // ── UI ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex flex-col font-[system-ui]"
-         style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-
+    <div
+      className="min-h-screen flex flex-col font-[system-ui]"
+      style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+    >
       {/* ── HEADER ── */}
       <header className="flex items-center justify-between px-5 py-3">
         <button
@@ -161,14 +219,15 @@ export default function App() {
             }`}
           />
           {ble.connected && (
-            <span className="relative w-2 h-2 rounded-full pulse-ring"
-                  style={{ background: themeColor }} />
+            <span
+              className="relative w-2 h-2 rounded-full pulse-ring"
+              style={{ background: themeColor }}
+            />
           )}
         </button>
       </header>
 
       <main className="flex-1 px-5 pb-4 flex flex-col gap-5 max-w-md mx-auto w-full">
-
         {/* ── BLE CONNECTION SECTION ── */}
         {!ble.connected && (
           <section
@@ -176,7 +235,10 @@ export default function App() {
             onClick={ble.scanning ? undefined : ble.connect}
           >
             <div className="relative">
-              <Icon name="bluetooth_searching" className="icon-xl icon-active animate-pulse" />
+              <Icon
+                name="bluetooth_searching"
+                className="icon-xl icon-active animate-pulse"
+              />
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               {ble.scanning ? 'Scanning...' : 'Looking for Sling Watch...'}
@@ -195,14 +257,22 @@ export default function App() {
             <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {ble.deviceName}
             </span>
-            <button
-              onClick={ble.disconnect}
-              className="ml-auto"
-            >
-              <Icon name="close" className="icon-sm icon-dim hover:text-white transition" />
+            <button onClick={ble.disconnect} className="ml-auto">
+              <Icon
+                name="close"
+                className="icon-sm icon-dim hover:text-white transition"
+              />
             </button>
           </section>
         )}
+
+        {/* ── INSTRUMENT VISUALIZER ── */}
+        <section>
+          <InstrumentVisualizer
+            activeNotes={activeNotes}
+            instrument={audio.instrument}
+          />
+        </section>
 
         {/* ── INSTRUMENT SELECTOR ── */}
         <section>
@@ -220,14 +290,14 @@ export default function App() {
                     className="w-12 h-12 rounded-full flex items-center justify-center transition-all"
                     style={{
                       background: isActive ? 'transparent' : '#222222',
-                      border: isActive ? `2px solid ${color}` : '2px solid transparent',
+                      border: isActive
+                        ? `2px solid ${color}`
+                        : '2px solid transparent',
                       boxShadow: isActive ? `0 0 12px ${color}40` : 'none',
+                      color: isActive ? color : '#555555',
                     }}
                   >
-                    <Icon
-                      name={INSTRUMENT_ICONS[name]}
-                      className={isActive ? 'icon-active' : 'icon-dim'}
-                    />
+                    {INST_SVG[name]}
                   </div>
                   <span
                     className="text-[10px] font-medium"
@@ -256,9 +326,15 @@ export default function App() {
 
           {/* STATE 2: idle */}
           {spotify.spotifyState === 'idle' && (
-            <div className="rounded-2xl p-5 flex flex-col items-center gap-3"
-                 style={{ background: 'var(--bg-card)' }}>
-              <Icon name="music_note" className="icon-xl" style={{ color: 'var(--text-ghost)' }} />
+            <div
+              className="rounded-2xl p-5 flex flex-col items-center gap-3"
+              style={{ background: 'var(--bg-card)' }}
+            >
+              <Icon
+                name="music_note"
+                className="icon-xl"
+                style={{ color: 'var(--text-ghost)' }}
+              />
               <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
                 Open Spotify to start playing
               </p>
@@ -298,8 +374,10 @@ export default function App() {
                   <p className="font-semibold text-sm truncate">
                     {spotify.currentTrack.song}
                   </p>
-                  <p className="text-xs truncate mt-0.5"
-                     style={{ color: 'var(--text-secondary)' }}>
+                  <p
+                    className="text-xs truncate mt-0.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     {spotify.currentTrack.artist}
                   </p>
                 </div>
@@ -307,30 +385,44 @@ export default function App() {
 
               {/* Controls */}
               <div className="flex items-center justify-center gap-8 mt-3">
-                <button onClick={spotify.prevTrack} className="transition hover:opacity-80">
+                <button
+                  onClick={spotify.prevTrack}
+                  className="transition hover:opacity-80"
+                >
                   <Icon name="skip_previous" />
                 </button>
-                <button onClick={spotify.playPause} className="transition hover:opacity-80">
+                <button
+                  onClick={spotify.playPause}
+                  className="transition hover:opacity-80"
+                >
                   <Icon
-                    name={spotify.spotifyState === 'playing' ? 'pause' : 'play_arrow'}
+                    name={
+                      spotify.spotifyState === 'playing' ? 'pause' : 'play_arrow'
+                    }
                     className="icon-lg"
                   />
                 </button>
-                <button onClick={spotify.nextTrack} className="transition hover:opacity-80">
+                <button
+                  onClick={spotify.nextTrack}
+                  className="transition hover:opacity-80"
+                >
                   <Icon name="skip_next" />
                 </button>
               </div>
 
               {/* Progress bar */}
-              <div className="mt-3 h-[3px] rounded-full overflow-hidden"
-                   style={{ background: '#222' }}>
+              <div
+                className="mt-3 h-[3px] rounded-full overflow-hidden"
+                style={{ background: '#222' }}
+              >
                 <div
                   className="h-full rounded-full transition-none"
                   style={{
                     width: `${(spotify.progress * 100).toFixed(1)}%`,
-                    background: spotify.spotifyState === 'playing'
-                      ? '#1DB954'
-                      : 'var(--text-dim)',
+                    background:
+                      spotify.spotifyState === 'playing'
+                        ? '#1DB954'
+                        : 'var(--text-dim)',
                   }}
                 />
               </div>
@@ -341,10 +433,14 @@ export default function App() {
         {/* ── STATUS LOG ── */}
         {log.length > 0 && (
           <section className="mt-auto">
-            <div className="font-mono text-[10px] space-y-0.5"
-                 style={{ color: 'var(--text-ghost)' }}>
+            <div
+              className="font-mono text-[10px] space-y-0.5"
+              style={{ color: 'var(--text-ghost)' }}
+            >
               {log.map((entry, i) => (
-                <div key={i} className="log-entry">{entry}</div>
+                <div key={i} className="log-entry">
+                  {entry}
+                </div>
               ))}
             </div>
           </section>
@@ -365,7 +461,10 @@ export default function App() {
                 setCameraVisible(false);
               }}
             >
-              <Icon name="close" className="icon-sm hover:text-white transition" />
+              <Icon
+                name="close"
+                className="icon-sm hover:text-white transition"
+              />
             </button>
           </div>
           <div className="flex-1 flex items-center justify-center px-4 pb-4">
@@ -405,13 +504,18 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold text-center">About Sling</h2>
-            <div className="space-y-3 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <div
+              className="space-y-3 text-sm"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <Icon name="info" className="icon-sm icon-dim" />
                   <span>App version</span>
                 </div>
-                <span style={{ color: 'var(--text-primary)' }}>v{APP_VERSION}</span>
+                <span style={{ color: 'var(--text-primary)' }}>
+                  v{APP_VERSION}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
@@ -425,7 +529,11 @@ export default function App() {
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <Icon
-                    name={ble.connected ? 'bluetooth_connected' : 'bluetooth_disabled'}
+                    name={
+                      ble.connected
+                        ? 'bluetooth_connected'
+                        : 'bluetooth_disabled'
+                    }
                     className={`icon-sm ${ble.connected ? 'icon-active' : 'icon-dim'}`}
                   />
                   <span>BLE</span>
@@ -436,7 +544,10 @@ export default function App() {
               </div>
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                  <Icon name="music_note" className={`icon-sm ${spotify.connected ? 'icon-active' : 'icon-dim'}`} />
+                  <Icon
+                    name="music_note"
+                    className={`icon-sm ${spotify.connected ? 'icon-active' : 'icon-dim'}`}
+                  />
                   <span>Spotify</span>
                 </div>
                 <span style={{ color: 'var(--text-primary)' }}>

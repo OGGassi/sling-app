@@ -13,90 +13,96 @@ export const NOTE_NAMES = [
   'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
 ];
 
-// ── Instrument presets ────────────────────────────────────────
+// ── Instrument presets with multi-harmonic + filter ───────────
 
 const PRESETS = {
   Piano: {
-    osc1: 'triangle',
+    type: 'triangle',
     attack: 0.01,
-    decay: 0.3,
-    sustain: 0.1,
-    release: 0.5,
-    // Subtle 2nd harmonic
-    osc2: 'sine',
-    osc2ratio: 2,
-    osc2gain: 0.1,
-    osc2detune: 0,
+    decay: 0.4,
+    sustain: 0.2,
+    release: 0.8,
+    harmonics: [
+      { ratio: 2, gain: 0.3 },
+      { ratio: 3, gain: 0.15 },
+      { ratio: 4, gain: 0.08 },
+    ],
+    filterType: 'lowpass',
+    filterFreq: 3000,
+    vibratoRate: 0,
+    vibratoDepth: 0,
   },
   Guitar: {
-    osc1: 'sawtooth',
+    type: 'sawtooth',
     attack: 0.005,
-    decay: 0.15,
-    sustain: 0.05,
-    release: 0.3,
-    osc2: null,
-    osc2ratio: 1,
-    osc2gain: 0,
-    osc2detune: 0,
+    decay: 0.2,
+    sustain: 0.1,
+    release: 0.4,
+    harmonics: [
+      { ratio: 2, gain: 0.4 },
+      { ratio: 3, gain: 0.2 },
+    ],
+    filterType: 'lowpass',
+    filterFreq: 2000,
+    vibratoRate: 0,
+    vibratoDepth: 0,
   },
   Viola: {
-    osc1: 'sawtooth',
-    attack: 0.1,
+    type: 'sawtooth',
+    attack: 0.15,
     decay: 0.1,
-    sustain: 0.8,
-    release: 0.4,
-    // Built-in vibrato
-    vibrato: true,
+    sustain: 0.9,
+    release: 0.5,
+    harmonics: [
+      { ratio: 2, gain: 0.5 },
+      { ratio: 3, gain: 0.25 },
+      { ratio: 5, gain: 0.1 },
+    ],
+    filterType: 'lowpass',
+    filterFreq: 1500,
+    // Built-in vibrato (bowed string)
     vibratoRate: 5.5,
-    vibratoDepth: 12, // cents
-    osc2: 'sawtooth',
-    osc2ratio: 1,
-    osc2gain: 0.3,
-    osc2detune: 3,
+    vibratoDepth: 12,
   },
   Flute: {
-    osc1: 'sine',
-    attack: 0.08,
+    type: 'sine',
+    attack: 0.1,
     decay: 0.05,
-    sustain: 0.9,
+    sustain: 0.95,
     release: 0.3,
-    osc2: null,
-    osc2ratio: 1,
-    osc2gain: 0,
-    osc2detune: 0,
+    harmonics: [],
+    filterType: 'highpass',
+    filterFreq: 8000,
+    vibratoRate: 0,
+    vibratoDepth: 0,
   },
   Pantam: {
-    osc1: 'sine',
+    type: 'sine',
     attack: 0.001,
-    decay: 0.5,
-    sustain: 0,
-    release: 1.5,
-    // Metallic resonance harmonic
-    osc2: 'sine',
-    osc2ratio: 2.756,
-    osc2gain: 0.2,
-    osc2detune: 0,
+    decay: 0.8,
+    sustain: 0.0,
+    release: 2.0,
+    harmonics: [
+      { ratio: 2.756, gain: 0.5 },
+      { ratio: 5.404, gain: 0.25 },
+    ],
+    filterType: 'bandpass',
+    filterFreq: 800,
+    vibratoRate: 0,
+    vibratoDepth: 0,
   },
 };
+
+const MAX_POLYPHONY = 5;
 
 // ── Theme accent colors per instrument ────────────────────────
 
 export const INSTRUMENT_COLORS = {
   Piano:  '#00FFFF',
-  Guitar: '#FF6B35',
-  Viola:  '#C77DFF',
-  Flute:  '#72EFDD',
-  Pantam: '#FFD166',
-};
-
-// ── Material icon names per instrument ────────────────────────
-
-export const INSTRUMENT_ICONS = {
-  Piano:  'piano',
-  Guitar: 'guitar',          // may not be in Outlined — fallback handled in UI
-  Viola:  'music_note',
-  Flute:  'air',
-  Pantam: 'radio_button_unchecked',
+  Guitar: '#FF8C00',
+  Viola:  '#9333EA',
+  Flute:  '#00FF88',
+  Pantam: '#FFD700',
 };
 
 // ── Hook ──────────────────────────────────────────────────────
@@ -104,7 +110,7 @@ export const INSTRUMENT_ICONS = {
 export default function useAudio() {
   const [instrument, setInstrument] = useState('Piano');
   const ctxRef = useRef(null);
-  const activeNotes = useRef(new Map());
+  const activeRef = useRef(new Map()); // noteIndex → { oscillators, gain, lfoNodes, inst }
 
   const getCtx = useCallback(() => {
     if (!ctxRef.current) ctxRef.current = new AudioContext();
@@ -112,83 +118,117 @@ export default function useAudio() {
     return ctxRef.current;
   }, []);
 
+  // ── Stop all notes (cleanup stuck notes) ────────────────────
+
+  const stopAllNotes = useCallback(() => {
+    const ctx = ctxRef.current;
+    const now = ctx ? ctx.currentTime : 0;
+    activeRef.current.forEach((entry) => {
+      entry.oscillators.forEach((osc) => {
+        try { osc.stop(now + 0.05); } catch { /* ok */ }
+      });
+      entry.lfoNodes.forEach((lfo) => {
+        try { lfo.stop(now + 0.05); } catch { /* ok */ }
+      });
+    });
+    activeRef.current.clear();
+  }, []);
+
   // ── Play a note ─────────────────────────────────────────────
-  // Extended packet: playNote(idx, velocity, pitchBend, vibrato, tremolo)
-  //   pitchBend: -12..+12 semitones → mapped to cents
-  //   vibrato:   0..127 → frequency LFO depth
-  //   tremolo:   0..127 → amplitude LFO depth
+  //   pitchBend: -12..+12 semitones → cents
+  //   vibrato:   0..127 → frequency LFO
+  //   tremolo:   0..127 → amplitude LFO
 
   const playNote = useCallback(
     (noteIndex, velocity = 100, pitchBend = 0, vibratoAmt = 0, tremoloAmt = 0) => {
       const ctx = getCtx();
-      const freq = NOTE_FREQ[noteIndex];
-      if (freq == null) return;
+      const baseFreq = NOTE_FREQ[noteIndex];
+      if (baseFreq == null) return;
 
-      const p = PRESETS[instrument];
+      // Guard: stop stuck notes if polyphony exceeded
+      if (activeRef.current.size >= MAX_POLYPHONY) {
+        stopAllNotes();
+      }
+
+      // Stop same note if already playing
+      if (activeRef.current.has(noteIndex)) {
+        const prev = activeRef.current.get(noteIndex);
+        const now = ctx.currentTime;
+        prev.oscillators.forEach((o) => { try { o.stop(now + 0.02); } catch { /* ok */ } });
+        prev.lfoNodes.forEach((l) => { try { l.stop(now + 0.02); } catch { /* ok */ } });
+        activeRef.current.delete(noteIndex);
+      }
+
+      const inst = PRESETS[instrument];
       const vol = (velocity / 127) * 0.5;
       const now = ctx.currentTime;
 
-      // Pitch bend: map -12..+12 semitones to -1200..+1200 cents
-      const bendCents = pitchBend * 100;
+      // Pitch bend: map semitones to frequency multiplier
+      const freq = baseFreq * Math.pow(2, (pitchBend * 100) / 1200);
 
-      // Master gain for tremolo
-      const masterGain = ctx.createGain();
-      masterGain.gain.setValueAtTime(1, now);
-      masterGain.connect(ctx.destination);
+      // ── Filter for character ──
+      const filter = ctx.createBiquadFilter();
+      filter.type = inst.filterType;
+      filter.frequency.value = inst.filterFreq;
+      if (inst.filterType === 'bandpass') filter.Q.value = 2;
 
-      // ── Primary oscillator ──
-      const osc1 = ctx.createOscillator();
-      osc1.type = p.osc1;
-      osc1.frequency.value = freq;
-      osc1.detune.value = bendCents;
+      // ── Master gain (ADSR envelope) ──
+      const gainNode = ctx.createGain();
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(vol, now + inst.attack);
+      gainNode.gain.linearRampToValueAtTime(
+        inst.sustain * vol,
+        now + inst.attack + inst.decay
+      );
 
-      const gain1 = ctx.createGain();
-      gain1.gain.setValueAtTime(0, now);
-      gain1.gain.linearRampToValueAtTime(vol, now + p.attack);
-      gain1.gain.linearRampToValueAtTime(vol * p.sustain, now + p.attack + p.decay);
-      osc1.connect(gain1).connect(masterGain);
-      osc1.start(now);
+      filter.connect(gainNode);
+      gainNode.connect(ctx.destination);
 
-      const nodes = [{ osc: osc1, gain: gain1 }];
+      const oscillators = [];
       const lfoNodes = [];
 
-      // ── Optional second oscillator ──
-      if (p.osc2) {
-        const osc2 = ctx.createOscillator();
-        osc2.type = p.osc2;
-        osc2.frequency.value = freq * (p.osc2ratio || 1);
-        osc2.detune.value = (p.osc2detune || 0) + bendCents;
+      // ── Primary oscillator ──
+      const osc = ctx.createOscillator();
+      osc.type = inst.type;
+      osc.frequency.value = freq;
+      osc.connect(filter);
+      osc.start(now);
+      oscillators.push(osc);
 
-        const gain2 = ctx.createGain();
-        gain2.gain.setValueAtTime(0, now);
-        gain2.gain.linearRampToValueAtTime(vol * p.osc2gain, now + p.attack);
-        gain2.gain.linearRampToValueAtTime(
-          vol * p.osc2gain * p.sustain,
-          now + p.attack + p.decay
+      // ── Harmonic oscillators for richness ──
+      inst.harmonics.forEach((h) => {
+        const harmOsc = ctx.createOscillator();
+        harmOsc.type = inst.type;
+        harmOsc.frequency.value = freq * h.ratio;
+
+        const harmGain = ctx.createGain();
+        harmGain.gain.setValueAtTime(0, now);
+        harmGain.gain.linearRampToValueAtTime(h.gain * vol, now + inst.attack);
+        harmGain.gain.linearRampToValueAtTime(
+          h.gain * vol * inst.sustain,
+          now + inst.attack + inst.decay
         );
-        osc2.connect(gain2).connect(masterGain);
-        osc2.start(now);
-        nodes.push({ osc: osc2, gain: gain2 });
-      }
+
+        harmOsc.connect(harmGain);
+        harmGain.connect(filter);
+        harmOsc.start(now);
+        oscillators.push(harmOsc);
+      });
 
       // ── Vibrato LFO (frequency modulation) ──
-      // Combine preset vibrato + incoming vibrato amount
-      const hasPresetVibrato = p.vibrato;
-      const hasInputVibrato = vibratoAmt > 0;
+      const hasPresetVib = inst.vibratoRate > 0;
+      const hasInputVib = vibratoAmt > 10;
 
-      if (hasPresetVibrato || hasInputVibrato) {
+      if (hasPresetVib || hasInputVib) {
         const vibratoLfo = ctx.createOscillator();
         vibratoLfo.type = 'sine';
 
-        // Rate: preset default or map input 0-127 → 4-8 Hz
-        const rate = hasInputVibrato
-          ? 4 + (vibratoAmt / 127) * 4
-          : (p.vibratoRate || 5.5);
-
-        // Depth in cents: preset or map input 0-127 → 0-20 cents
-        const depth = hasInputVibrato
-          ? (vibratoAmt / 127) * 20
-          : (p.vibratoDepth || 12);
+        const rate = hasInputVib
+          ? 5 + (vibratoAmt / 127) * 3
+          : inst.vibratoRate;
+        const depth = hasInputVib
+          ? freq * 0.02 * (vibratoAmt / 127)
+          : freq * 0.005;
 
         vibratoLfo.frequency.value = rate;
 
@@ -196,89 +236,80 @@ export default function useAudio() {
         vibratoGain.gain.value = depth;
 
         vibratoLfo.connect(vibratoGain);
-        // Connect to detune of all oscillators
-        nodes.forEach(({ osc }) => {
-          vibratoGain.connect(osc.detune);
-        });
+        // Modulate frequency of all oscillators
+        oscillators.forEach((o) => vibratoGain.connect(o.frequency));
         vibratoLfo.start(now);
         lfoNodes.push(vibratoLfo);
       }
 
       // ── Tremolo LFO (amplitude modulation) ──
-      if (tremoloAmt > 0) {
+      if (tremoloAmt > 10) {
         const tremoloLfo = ctx.createOscillator();
         tremoloLfo.type = 'sine';
-        // Rate: map 0-127 → 4-8 Hz
         tremoloLfo.frequency.value = 4 + (tremoloAmt / 127) * 4;
 
         const tremoloDepth = ctx.createGain();
-        // Depth: map 0-127 → 0-0.3
         tremoloDepth.gain.value = (tremoloAmt / 127) * 0.3;
 
         tremoloLfo.connect(tremoloDepth);
-        tremoloDepth.connect(masterGain.gain);
+        tremoloDepth.connect(gainNode.gain);
         tremoloLfo.start(now);
         lfoNodes.push(tremoloLfo);
       }
 
-      activeNotes.current.set(noteIndex, {
-        nodes,
+      activeRef.current.set(noteIndex, {
+        oscillators,
         lfoNodes,
-        masterGain,
-        preset: p,
+        gain: gainNode,
+        inst,
       });
     },
-    [instrument, getCtx]
+    [instrument, getCtx, stopAllNotes]
   );
 
   // ── Stop a note ─────────────────────────────────────────────
 
   const stopNote = useCallback(
     (noteIndex) => {
-      const entry = activeNotes.current.get(noteIndex);
+      const entry = activeRef.current.get(noteIndex);
       if (!entry) return;
 
       const ctx = getCtx();
       const now = ctx.currentTime;
-      const fadeOut = entry.preset.release;
+      const release = entry.inst.release;
+      const stopTime = now + release;
 
-      entry.nodes.forEach(({ osc, gain }) => {
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.linearRampToValueAtTime(0, now + fadeOut);
-        osc.stop(now + fadeOut + 0.01);
+      // Fade out gain
+      entry.gain.gain.cancelScheduledValues(now);
+      entry.gain.gain.setValueAtTime(entry.gain.gain.value, now);
+      entry.gain.gain.linearRampToValueAtTime(0, stopTime);
+
+      // Schedule oscillator stops
+      entry.oscillators.forEach((osc) => {
+        try { osc.stop(stopTime + 0.01); } catch { /* ok */ }
+      });
+      entry.lfoNodes.forEach((lfo) => {
+        try { lfo.stop(stopTime + 0.01); } catch { /* ok */ }
       });
 
-      // Stop LFOs
-      entry.lfoNodes?.forEach((lfo) => {
-        try { lfo.stop(now + fadeOut + 0.01); } catch { /* ok */ }
-      });
-
-      activeNotes.current.delete(noteIndex);
+      activeRef.current.delete(noteIndex);
     },
     [getCtx]
   );
 
-  // Cleanup on instrument change
+  // Cleanup on instrument change — stop all notes
   useEffect(() => {
     return () => {
-      activeNotes.current.forEach((entry) => {
-        entry.nodes.forEach(({ osc }) => {
-          try { osc.stop(); } catch { /* already stopped */ }
-        });
-        entry.lfoNodes?.forEach((lfo) => {
-          try { lfo.stop(); } catch { /* ok */ }
-        });
-      });
-      activeNotes.current.clear();
+      stopAllNotes();
     };
-  }, [instrument]);
+  }, [instrument, stopAllNotes]);
 
   return {
     instrument,
     setInstrument,
     playNote,
     stopNote,
+    stopAllNotes,
     instruments: Object.keys(PRESETS),
   };
 }
