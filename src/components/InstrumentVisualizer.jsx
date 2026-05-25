@@ -1,11 +1,11 @@
 import { useRef, useEffect } from 'react';
 
 const COLORS = {
-  Piano:  '#00FFFF',
-  Guitar: '#FF8C00',
-  Viola:  '#9333EA',
-  Flute:  '#00FF88',
-  Pantam: '#FFD700',
+  Piano:      '#00FFFF',
+  Harmonica:  '#4FC3F7',
+  Viola:      '#9333EA',
+  Flute:      '#00FF88',
+  Percussion: '#FF5722',
 };
 
 export default function InstrumentVisualizer({ activeNotes = [], instrument = 'Piano' }) {

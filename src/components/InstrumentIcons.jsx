@@ -1,23 +1,18 @@
 export const InstrumentSVGs = {
   Piano: (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-      <rect x="3" y="8" width="22" height="14" rx="1" />
-      <line x1="8" y1="8" x2="8" y2="22" />
-      <line x1="13" y1="8" x2="13" y2="22" />
-      <line x1="18" y1="8" x2="18" y2="22" />
-      <rect x="5.5" y="8" width="3" height="8" fill="currentColor" stroke="none" />
-      <rect x="10.5" y="8" width="3" height="8" fill="currentColor" stroke="none" />
-      <rect x="15.5" y="8" width="3" height="8" fill="currentColor" stroke="none" />
-    </svg>
+    <span className="material-symbols-outlined" style={{ fontSize: '28px' }}>
+      piano
+    </span>
   ),
 
-  Guitar: (
+  Harmonica: (
     <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-      <ellipse cx="14" cy="19" rx="7" ry="7" />
-      <ellipse cx="14" cy="10" rx="4" ry="4" />
-      <line x1="14" y1="6" x2="14" y2="3" />
-      <line x1="11" y1="3" x2="17" y2="3" />
-      <circle cx="14" cy="19" r="2" fill="currentColor" stroke="none" />
+      <rect x="3" y="10" width="22" height="9" rx="2" />
+      <circle cx="8" cy="14.5" r="1.5" />
+      <circle cx="12" cy="14.5" r="1.5" />
+      <circle cx="16" cy="14.5" r="1.5" />
+      <circle cx="20" cy="14.5" r="1.5" />
+      <line x1="3" y1="14.5" x2="25" y2="14.5" strokeOpacity="0.3" />
     </svg>
   ),
 
@@ -39,12 +34,16 @@ export const InstrumentSVGs = {
     </svg>
   ),
 
-  Pantam: (
+  Percussion: (
     <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-      <ellipse cx="14" cy="16" rx="11" ry="6" />
-      <ellipse cx="14" cy="16" rx="11" ry="6" transform="rotate(60 14 16)" />
-      <ellipse cx="14" cy="16" rx="11" ry="6" transform="rotate(-60 14 16)" />
-      <circle cx="14" cy="16" r="2.5" fill="currentColor" stroke="none" />
+      <ellipse cx="14" cy="18" rx="10" ry="5" />
+      <ellipse cx="14" cy="13" rx="10" ry="5" />
+      <line x1="4" y1="13" x2="4" y2="18" />
+      <line x1="24" y1="13" x2="24" y2="18" />
+      <line x1="11" y1="13" x2="9" y2="5" />
+      <line x1="17" y1="13" x2="19" y2="5" />
+      <circle cx="9" cy="4" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="4" r="1.5" fill="currentColor" stroke="none" />
     </svg>
   ),
 };

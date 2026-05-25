@@ -11,11 +11,11 @@ export const NOTE_NAMES = [
 // ── Theme accent colors per instrument ────────────────────────
 
 export const INSTRUMENT_COLORS = {
-  Piano:  '#00FFFF',
-  Guitar: '#FF8C00',
-  Viola:  '#9333EA',
-  Flute:  '#00FF88',
-  Pantam: '#FFD700',
+  Piano:      '#00FFFF',
+  Harmonica:  '#4FC3F7',
+  Viola:      '#9333EA',
+  Flute:      '#00FF88',
+  Percussion: '#FF5722',
 };
 
 // ── Synth factory per instrument ──────────────────────────────
@@ -34,17 +34,19 @@ function createSynth(name) {
       }).toDestination();
     }
 
-    case 'Guitar': {
+    case 'Harmonica': {
       const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'fmsawtooth', modulationIndex: 3 },
+        oscillator: { type: 'square' },
         envelope: {
-          attack: 0.005,
-          decay: 0.15,
-          sustain: 0.05,
-          release: 0.4,
+          attack: 0.01,
+          decay: 0.08,
+          sustain: 0.7,
+          release: 0.15,
         },
       });
-      const filter = new Tone.Filter(2000, 'lowpass').toDestination();
+      // Add slight distortion for reed sound
+      const dist = new Tone.Distortion(0.1).toDestination();
+      const filter = new Tone.Filter(1200, 'bandpass').connect(dist);
       synth.connect(filter);
       return synth;
     }
@@ -80,60 +82,32 @@ function createSynth(name) {
       return synth;
     }
 
-    case 'Pantam': {
-      // MetalSynth can't be wrapped in PolySynth, so we create a
-      // pool of MonoSynths tuned for metallic timbre instead
-      const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'sine' },
+    case 'Percussion': {
+      // MembraneSynth is monophonic — wrap in compatible interface
+      const synth = new Tone.MembraneSynth({
+        pitchDecay: 0.08,
+        octaves: 6,
         envelope: {
           attack: 0.001,
-          decay: 1.4,
-          sustain: 0.0,
-          release: 0.2,
+          decay: 0.4,
+          sustain: 0,
+          release: 0.4,
         },
-      });
-      // Add a second partial at 2.756x for metallic shimmer
-      const synth2 = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'sine' },
-        envelope: {
-          attack: 0.001,
-          decay: 1.0,
-          sustain: 0.0,
-          release: 0.15,
+      }).toDestination();
+      return {
+        triggerAttack: (n, t, v) => {
+          synth.triggerAttack(Array.isArray(n) ? n[0] : n, t, v);
         },
-      });
-      const gain2 = new Tone.Gain(0.4).toDestination();
-      synth2.connect(gain2);
-      synth.toDestination();
-      // Return both synths as a combined object
-      return { triggerAttack: (n, t, v) => {
-        synth.triggerAttack(n, t, v);
-        // Shift second partial up by ~17.5 semitones (2.756 ratio)
-        const shifted = Array.isArray(n)
-          ? n.map(note => Tone.Frequency(note).toFrequency() * 2.756)
-          : Tone.Frequency(n).toFrequency() * 2.756;
-        synth2.triggerAttack(
-          Array.isArray(shifted) ? shifted.map(f => f) : shifted,
-          t, (v || 1) * 0.4
-        );
-      }, triggerRelease: (n, t) => {
-        synth.triggerRelease(n, t);
-        // Release second synth too — use same notes transposed
-        const shifted = Array.isArray(n)
-          ? n.map(note => Tone.Frequency(note).toFrequency() * 2.756)
-          : Tone.Frequency(n).toFrequency() * 2.756;
-        synth2.triggerRelease(
-          Array.isArray(shifted) ? shifted : [shifted],
-          t
-        );
-      }, releaseAll: () => {
-        synth.releaseAll();
-        synth2.releaseAll();
-      }, dispose: () => {
-        synth.dispose();
-        synth2.dispose();
-        gain2.dispose();
-      }};
+        triggerRelease: (_n, t) => {
+          synth.triggerRelease(t);
+        },
+        releaseAll: () => {
+          synth.triggerRelease();
+        },
+        dispose: () => {
+          synth.dispose();
+        },
+      };
     }
 
     default:
@@ -141,7 +115,7 @@ function createSynth(name) {
   }
 }
 
-const INSTRUMENT_LIST = ['Piano', 'Guitar', 'Viola', 'Flute', 'Pantam'];
+const INSTRUMENT_LIST = ['Piano', 'Harmonica', 'Viola', 'Flute', 'Percussion'];
 
 // ── Hook ──────────────────────────────────────────────────────
 

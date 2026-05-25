@@ -8,11 +8,11 @@ import { InstrumentSVGs } from './components/InstrumentIcons';
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
-// ── Helper: Material Icon ─────────────────────────────────────
+// ── Helper: Material Symbol ──────────────────────────────────
 
 function Icon({ name, className = '', style }) {
   return (
-    <span className={`material-icons-outlined ${className}`} style={style}>
+    <span className={`material-symbols-outlined ${className}`} style={style}>
       {name}
     </span>
   );
@@ -27,6 +27,7 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   const [cameraVisible, setCameraVisible] = useState(false);
   const [activeNotes, setActiveNotes] = useState([]);
+  const [activeMode, setActiveMode] = useState(null); // null | 'camera' | 'music' | 'instrument'
 
   // Refs to break circular dependency between hooks
   const spotifyRef = useRef(null);
@@ -45,6 +46,21 @@ export default function App() {
   const addLog = useCallback((entry) => {
     setLog((prev) => [entry, ...prev].slice(0, 3));
   }, []);
+
+  // ── Exit mode ───────────────────────────────────────────────
+  const exitMode = useCallback(
+    (mode) => {
+      bleRef.current?.sendToWatch('EXIT:' + (mode || '').toUpperCase());
+      setActiveMode(null);
+      audio.stopAllNotes();
+      setActiveNotes([]);
+      if (mode === 'camera') {
+        cameraRef.current?.stopCamera();
+        setCameraVisible(false);
+      }
+    },
+    [audio]
+  );
 
   // ── Command handler (watch → phone via STATUS notifications) ─
   const handleCommand = useCallback(
@@ -71,6 +87,7 @@ export default function App() {
         const cam = cameraRef.current;
         if (!cam || !cam.isActive()) {
           setCameraVisible(true);
+          setActiveMode('camera');
           setTimeout(() => cameraRef.current?.openCamera(), 100);
           addLog('TAKE_PHOTO → Camera opened');
         } else {
@@ -81,6 +98,7 @@ export default function App() {
         const cam = cameraRef.current;
         if (!cam || !cam.isActive()) {
           setCameraVisible(true);
+          setActiveMode('camera');
           setTimeout(() => {
             cameraRef.current?.openCamera();
             setTimeout(() => cameraRef.current?.startVideo(), 500);
@@ -92,6 +110,15 @@ export default function App() {
       } else if (cmd === 'STOP_VIDEO') {
         cameraRef.current?.stopVideo();
         addLog('STOP_VIDEO → Saved');
+      } else if (cmd === 'LAUNCH:CAMERA') {
+        setCameraVisible(true);
+        setActiveMode('camera');
+        setTimeout(() => cameraRef.current?.openCamera(), 100);
+        addLog('LAUNCH → Camera');
+      } else if (cmd === 'LAUNCH:SPOTIFY') {
+        setActiveMode('music');
+        window.open('spotify:', '_blank');
+        addLog('LAUNCH → Spotify');
       } else if (cmd.startsWith('NOTE_ON:')) {
         const parts = cmd.split(':');
         const note = parseInt(parts[1]);
@@ -99,6 +126,7 @@ export default function App() {
         const bend = parseInt(parts[3]) || 0;
         const vib = parseInt(parts[4]) || 0;
         const trem = parseInt(parts[5]) || 0;
+        if (activeMode !== 'instrument') setActiveMode('instrument');
         audio.playNote(note, vel, bend, vib, trem);
         setActiveNotes((prev) => [
           ...prev.filter((n) => n.note !== note),
@@ -126,7 +154,7 @@ export default function App() {
         addLog('GET_TIME → synced');
       }
     },
-    [audio, addLog]
+    [audio, addLog, activeMode]
   );
 
   // Initialize hooks
@@ -142,6 +170,7 @@ export default function App() {
     if (!ble.connected) {
       audio.stopAllNotes();
       setActiveNotes([]);
+      setActiveMode(null);
     }
   }, [ble.connected, audio.stopAllNotes]);
 
@@ -228,174 +257,201 @@ export default function App() {
           </section>
         )}
 
-        {/* ── INSTRUMENT VISUALIZER ── */}
-        <section>
-          <InstrumentVisualizer
-            activeNotes={activeNotes}
-            instrument={audio.instrument}
-          />
-        </section>
+        {/* ── INSTRUMENT VISUALIZER (show when instrument mode or no mode) ── */}
+        {(activeMode === null || activeMode === 'instrument') && (
+          <section>
+            <InstrumentVisualizer
+              activeNotes={activeNotes}
+              instrument={audio.instrument}
+            />
+          </section>
+        )}
 
-        {/* ── INSTRUMENT SELECTOR ── */}
-        <section>
-          <div className="flex justify-center gap-3">
-            {audio.instruments.map((name) => {
-              const isActive = audio.instrument === name;
-              const color = INSTRUMENT_COLORS[name];
-              return (
-                <button
-                  key={name}
-                  onClick={() => {
-                    audio.setInstrument(name);
-                    setActiveNotes([]);
-                    // Tell watch about instrument change
-                    bleRef.current?.sendToWatch(`INSTRUMENT:${name}`);
-                  }}
-                  className="flex flex-col items-center gap-1.5 transition"
-                >
-                  <div
-                    className="w-[52px] h-[52px] rounded-full flex items-center justify-center transition-all"
-                    style={{
-                      background: isActive ? '#111' : '#0A0A0A',
-                      border: isActive
-                        ? `2px solid ${color}`
-                        : '2px solid #222',
-                      boxShadow: isActive ? `0 0 14px ${color}40` : 'none',
-                      color: isActive ? color : '#555555',
+        {/* ── INSTRUMENT SELECTOR (show when instrument mode or no mode) ── */}
+        {(activeMode === null || activeMode === 'instrument') && (
+          <section>
+            <div className="flex justify-center gap-3">
+              {audio.instruments.map((name) => {
+                const isActive = audio.instrument === name;
+                const color = INSTRUMENT_COLORS[name];
+                return (
+                  <button
+                    key={name}
+                    onClick={() => {
+                      audio.setInstrument(name);
+                      setActiveNotes([]);
+                      // Tell watch about instrument change
+                      bleRef.current?.sendToWatch(`INSTRUMENT:${name}`);
                     }}
+                    className="flex flex-col items-center gap-1.5 transition"
                   >
-                    {InstrumentSVGs[name]}
-                  </div>
-                  <span
-                    className="text-[10px] font-medium"
-                    style={{ color: isActive ? color : 'var(--text-dim)' }}
-                  >
-                    {name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ── SPOTIFY ── */}
-        <section>
-          {/* STATE 1: disconnected */}
-          {spotify.spotifyState === 'disconnected' && (
-            <button
-              onClick={spotify.login}
-              className="w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black rounded-2xl font-semibold text-sm transition flex items-center justify-center gap-2"
-            >
-              <Icon name="music_note" className="!text-black !text-[18px]" />
-              Connect Spotify
-            </button>
-          )}
-
-          {/* STATE 2: idle */}
-          {spotify.spotifyState === 'idle' && (
-            <div
-              className="rounded-2xl p-5 flex flex-col items-center gap-3"
-              style={{ background: 'var(--bg-card)' }}
-            >
-              <Icon
-                name="music_note"
-                className="icon-xl"
-                style={{ color: 'var(--text-ghost)' }}
-              />
-              <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                Open Spotify to start playing
-              </p>
-              <div className="flex items-center gap-8 mt-1">
-                <button onClick={() => window.open('spotify:', '_blank')}>
-                  <Icon name="skip_previous" className="icon-dim" />
-                </button>
-                <button onClick={() => window.open('spotify:', '_blank')}>
-                  <Icon name="play_arrow" className="icon-lg icon-dim" />
-                </button>
-                <button onClick={() => window.open('spotify:', '_blank')}>
-                  <Icon name="skip_next" className="icon-dim" />
-                </button>
-              </div>
+                    <div
+                      className="w-[52px] h-[52px] rounded-full flex items-center justify-center transition-all"
+                      style={{
+                        background: isActive ? '#111' : '#0A0A0A',
+                        border: isActive
+                          ? `2px solid ${color}`
+                          : '2px solid #222',
+                        boxShadow: isActive ? `0 0 14px ${color}40` : 'none',
+                        color: isActive ? color : '#555555',
+                      }}
+                    >
+                      {InstrumentSVGs[name]}
+                    </div>
+                    <span
+                      className="text-[10px] font-medium"
+                      style={{ color: isActive ? color : 'var(--text-dim)' }}
+                    >
+                      {name}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          )}
+          </section>
+        )}
 
-          {/* STATE 3 & 4: playing / paused */}
-          {(spotify.spotifyState === 'playing' ||
-            spotify.spotifyState === 'paused') && (
-            <div
-              className="rounded-2xl p-4 transition-opacity"
+        {/* ── EXIT BUTTON (when in a mode) ── */}
+        {activeMode && (
+          <div className="flex justify-center">
+            <button
+              onClick={() => exitMode(activeMode)}
               style={{
-                background: 'var(--bg-card)',
-                opacity: spotify.spotifyState === 'paused' ? 0.6 : 1,
+                background: 'transparent',
+                border: '1px solid #333',
+                borderRadius: '20px',
+                color: '#666',
+                padding: '6px 16px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                marginTop: '8px',
               }}
             >
-              <div className="flex items-center gap-4">
-                {spotify.currentTrack.albumArt && (
-                  <img
-                    src={spotify.currentTrack.albumArt}
-                    alt="Album"
-                    className="w-14 h-14 rounded-lg flex-shrink-0"
-                  />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">
-                    {spotify.currentTrack.song}
-                  </p>
-                  <p
-                    className="text-xs truncate mt-0.5"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    {spotify.currentTrack.artist}
-                  </p>
+              Exit {activeMode}
+            </button>
+          </div>
+        )}
+
+        {/* ── SPOTIFY (show when music mode or no mode) ── */}
+        {(activeMode === null || activeMode === 'music') && (
+          <section>
+            {/* STATE 1: disconnected */}
+            {spotify.spotifyState === 'disconnected' && (
+              <button
+                onClick={spotify.login}
+                className="w-full py-4 bg-[#1DB954] hover:bg-[#1ed760] text-black rounded-2xl font-semibold text-sm transition flex items-center justify-center gap-2"
+              >
+                <Icon name="music_note" className="!text-black !text-[18px]" />
+                Connect Spotify
+              </button>
+            )}
+
+            {/* STATE 2: idle */}
+            {spotify.spotifyState === 'idle' && (
+              <div
+                className="rounded-2xl p-5 flex flex-col items-center gap-3"
+                style={{ background: 'var(--bg-card)' }}
+              >
+                <Icon
+                  name="music_note"
+                  className="icon-xl"
+                  style={{ color: 'var(--text-ghost)' }}
+                />
+                <p className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                  Open Spotify to start playing
+                </p>
+                <div className="flex items-center gap-8 mt-1">
+                  <button onClick={() => window.open('spotify:', '_blank')}>
+                    <Icon name="skip_previous" className="icon-dim" />
+                  </button>
+                  <button onClick={() => window.open('spotify:', '_blank')}>
+                    <Icon name="play_arrow" className="icon-lg icon-dim" />
+                  </button>
+                  <button onClick={() => window.open('spotify:', '_blank')}>
+                    <Icon name="skip_next" className="icon-dim" />
+                  </button>
                 </div>
               </div>
+            )}
 
-              {/* Controls */}
-              <div className="flex items-center justify-center gap-8 mt-3">
-                <button
-                  onClick={spotify.prevTrack}
-                  className="transition hover:opacity-80"
-                >
-                  <Icon name="skip_previous" />
-                </button>
-                <button
-                  onClick={spotify.playPause}
-                  className="transition hover:opacity-80"
-                >
-                  <Icon
-                    name={
-                      spotify.spotifyState === 'playing' ? 'pause' : 'play_arrow'
-                    }
-                    className="icon-lg"
-                  />
-                </button>
-                <button
-                  onClick={spotify.nextTrack}
-                  className="transition hover:opacity-80"
-                >
-                  <Icon name="skip_next" />
-                </button>
-              </div>
-
-              {/* Progress bar */}
+            {/* STATE 3 & 4: playing / paused */}
+            {(spotify.spotifyState === 'playing' ||
+              spotify.spotifyState === 'paused') && (
               <div
-                className="mt-3 h-[3px] rounded-full overflow-hidden"
-                style={{ background: '#222' }}
+                className="rounded-2xl p-4 transition-opacity"
+                style={{
+                  background: 'var(--bg-card)',
+                  opacity: spotify.spotifyState === 'paused' ? 0.6 : 1,
+                }}
               >
+                <div className="flex items-center gap-4">
+                  {spotify.currentTrack.albumArt && (
+                    <img
+                      src={spotify.currentTrack.albumArt}
+                      alt="Album"
+                      className="w-14 h-14 rounded-lg flex-shrink-0"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {spotify.currentTrack.song}
+                    </p>
+                    <p
+                      className="text-xs truncate mt-0.5"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {spotify.currentTrack.artist}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Controls */}
+                <div className="flex items-center justify-center gap-8 mt-3">
+                  <button
+                    onClick={spotify.prevTrack}
+                    className="transition hover:opacity-80"
+                  >
+                    <Icon name="skip_previous" />
+                  </button>
+                  <button
+                    onClick={spotify.playPause}
+                    className="transition hover:opacity-80"
+                  >
+                    <Icon
+                      name={
+                        spotify.spotifyState === 'playing' ? 'pause' : 'play_arrow'
+                      }
+                      className="icon-lg"
+                    />
+                  </button>
+                  <button
+                    onClick={spotify.nextTrack}
+                    className="transition hover:opacity-80"
+                  >
+                    <Icon name="skip_next" />
+                  </button>
+                </div>
+
+                {/* Progress bar */}
                 <div
-                  className="h-full rounded-full transition-none"
-                  style={{
-                    width: `${(spotify.progress * 100).toFixed(1)}%`,
-                    background:
-                      spotify.spotifyState === 'playing'
-                        ? '#1DB954'
-                        : 'var(--text-dim)',
-                  }}
-                />
+                  className="mt-3 h-[3px] rounded-full overflow-hidden"
+                  style={{ background: '#222' }}
+                >
+                  <div
+                    className="h-full rounded-full transition-none"
+                    style={{
+                      width: `${(spotify.progress * 100).toFixed(1)}%`,
+                      background:
+                        spotify.spotifyState === 'playing'
+                          ? '#1DB954'
+                          : 'var(--text-dim)',
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
+        )}
 
         {/* ── STATUS LOG ── */}
         {log.length > 0 && (
@@ -423,10 +479,7 @@ export default function App() {
               <span className="text-sm font-medium">Camera</span>
             </div>
             <button
-              onClick={() => {
-                cameraRef.current?.stopCamera();
-                setCameraVisible(false);
-              }}
+              onClick={() => exitMode('camera')}
             >
               <Icon
                 name="close"
