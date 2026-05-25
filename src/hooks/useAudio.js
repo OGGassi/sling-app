@@ -11,46 +11,15 @@ export const NOTE_NAMES = [
 // ── Theme accent colors per instrument ────────────────────────
 
 export const INSTRUMENT_COLORS = {
-  Piano:      '#00FFFF',
-  Harmonica:  '#4FC3F7',
-  Viola:      '#9333EA',
-  Flute:      '#00FF88',
-  Percussion: '#FF5722',
+  Viola:     '#9333EA',
+  Saxophone: '#FF8C00',
+  Custom:    '#888888',
 };
 
 // ── Synth factory per instrument ──────────────────────────────
 
 function createSynth(name) {
   switch (name) {
-    case 'Piano': {
-      return new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle8' },
-        envelope: {
-          attack: 0.02,
-          decay: 0.5,
-          sustain: 0.3,
-          release: 1.2,
-        },
-      }).toDestination();
-    }
-
-    case 'Harmonica': {
-      const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'square' },
-        envelope: {
-          attack: 0.01,
-          decay: 0.08,
-          sustain: 0.7,
-          release: 0.15,
-        },
-      });
-      // Add slight distortion for reed sound
-      const dist = new Tone.Distortion(0.1).toDestination();
-      const filter = new Tone.Filter(1200, 'bandpass').connect(dist);
-      synth.connect(filter);
-      return synth;
-    }
-
     case 'Viola': {
       const synth = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'sawtooth4' },
@@ -67,47 +36,31 @@ function createSynth(name) {
       return synth;
     }
 
-    case 'Flute': {
+    case 'Saxophone': {
       const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'sine' },
+        oscillator: { type: 'sawtooth' },
         envelope: {
-          attack: 0.1,
-          decay: 0.05,
-          sustain: 0.95,
-          release: 0.5,
+          attack: 0.05,
+          decay: 0.2,
+          sustain: 0.8,
+          release: 0.3,
         },
       });
-      const reverb = new Tone.Reverb(1.5).toDestination();
-      synth.connect(reverb);
+      const filter = new Tone.Filter(900, 'bandpass').toDestination();
+      synth.connect(filter);
       return synth;
     }
 
-    case 'Percussion': {
-      // MembraneSynth is monophonic — wrap in compatible interface
-      const synth = new Tone.MembraneSynth({
-        pitchDecay: 0.08,
-        octaves: 6,
+    case 'Custom': {
+      return new Tone.PolySynth(Tone.Synth, {
+        oscillator: { type: 'triangle' },
         envelope: {
-          attack: 0.001,
-          decay: 0.4,
-          sustain: 0,
-          release: 0.4,
+          attack: 0.05,
+          decay: 0.3,
+          sustain: 0.5,
+          release: 0.8,
         },
       }).toDestination();
-      return {
-        triggerAttack: (n, t, v) => {
-          synth.triggerAttack(Array.isArray(n) ? n[0] : n, t, v);
-        },
-        triggerRelease: (_n, t) => {
-          synth.triggerRelease(t);
-        },
-        releaseAll: () => {
-          synth.triggerRelease();
-        },
-        dispose: () => {
-          synth.dispose();
-        },
-      };
     }
 
     default:
@@ -115,12 +68,12 @@ function createSynth(name) {
   }
 }
 
-const INSTRUMENT_LIST = ['Piano', 'Harmonica', 'Viola', 'Flute', 'Percussion'];
+const INSTRUMENT_LIST = ['Viola', 'Saxophone', 'Custom'];
 
 // ── Hook ──────────────────────────────────────────────────────
 
 export default function useAudio() {
-  const [instrument, setInstrumentState] = useState('Piano');
+  const [instrument, setInstrumentState] = useState('Viola');
   const synthRef = useRef(null);
   const activeRef = useRef({}); // noteIndex → noteName
   const effectsRef = useRef([]); // track effects for disposal
@@ -215,7 +168,7 @@ export default function useAudio() {
   // ── Initialize on mount ─────────────────────────────────────
 
   useEffect(() => {
-    initSynth('Piano');
+    initSynth('Viola');
     return () => {
       if (synthRef.current) {
         try { synthRef.current.releaseAll(); } catch { /* ok */ }

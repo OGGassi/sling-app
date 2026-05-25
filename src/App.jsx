@@ -8,6 +8,72 @@ import { InstrumentSVGs } from './components/InstrumentIcons';
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0';
 
+// ── Swatches ─────────────────────────────────────────────────
+
+const SWATCHES = [
+  { id: 0, name: 'Minimal', color: '#E5E5E5', desc: 'Analog + digital, pure black' },
+  { id: 1, name: 'Jarvis',  color: '#00FFFF', desc: 'AI assistant, cyan glow' },
+  { id: 2, name: 'Neural',  color: '#9333EA', desc: 'Brain dots, moves with tilt' },
+  { id: 3, name: 'Sand',    color: '#FFD700', desc: 'Particles fall, shake for time' },
+  { id: 4, name: 'Neon',    color: '#00FF88', desc: 'Synthwave, equalizer bars' },
+];
+
+// ── Swatch mini-preview SVGs ─────────────────────────────────
+
+function SwatchPreview({ id }) {
+  switch (id) {
+    case 0: // Minimal — clock hands
+      return (
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <circle cx="15" cy="15" r="12" stroke="#555" strokeWidth="0.5" />
+          <line x1="15" y1="15" x2="15" y2="6" stroke="#888" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="15" y1="15" x2="22" y2="15" stroke="#888" strokeWidth="1" strokeLinecap="round" />
+          <circle cx="15" cy="15" r="1" fill="#888" />
+        </svg>
+      );
+    case 1: // Jarvis — cyan rings + text
+      return (
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <circle cx="15" cy="15" r="10" stroke="#00FFFF" strokeWidth="0.5" opacity="0.5" />
+          <circle cx="15" cy="15" r="6" stroke="#00FFFF" strokeWidth="0.5" opacity="0.7" />
+          <text x="15" y="17" textAnchor="middle" fill="#00FFFF" fontSize="6" fontFamily="monospace">AI</text>
+        </svg>
+      );
+    case 2: // Neural — purple dots
+      return (
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <circle cx="10" cy="10" r="2" fill="#9333EA" opacity="0.8" />
+          <circle cx="20" cy="12" r="1.5" fill="#9333EA" opacity="0.6" />
+          <circle cx="15" cy="20" r="2.5" fill="#9333EA" opacity="0.7" />
+          <circle cx="8" cy="22" r="1" fill="#9333EA" opacity="0.5" />
+          <circle cx="22" cy="22" r="1.8" fill="#9333EA" opacity="0.6" />
+        </svg>
+      );
+    case 3: // Sand — golden particles
+      return (
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <circle cx="12" cy="18" r="1" fill="#FFD700" opacity="0.7" />
+          <circle cx="15" cy="22" r="1.2" fill="#FFD700" opacity="0.8" />
+          <circle cx="18" cy="20" r="0.8" fill="#FFD700" opacity="0.6" />
+          <circle cx="10" cy="24" r="1" fill="#FFD700" opacity="0.5" />
+          <circle cx="20" cy="25" r="1.5" fill="#FFD700" opacity="0.7" />
+          <circle cx="14" cy="26" r="1" fill="#FFD700" opacity="0.9" />
+        </svg>
+      );
+    case 4: // Neon — green equalizer bars
+      return (
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <rect x="6" y="18" width="3" height="8" fill="#00FF88" opacity="0.7" rx="1" />
+          <rect x="11" y="12" width="3" height="14" fill="#00FF88" opacity="0.8" rx="1" />
+          <rect x="16" y="15" width="3" height="11" fill="#00FF88" opacity="0.6" rx="1" />
+          <rect x="21" y="10" width="3" height="16" fill="#00FF88" opacity="0.7" rx="1" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 // ── Helper: Material Symbol ──────────────────────────────────
 
 function Icon({ name, className = '', style }) {
@@ -28,6 +94,7 @@ export default function App() {
   const [cameraVisible, setCameraVisible] = useState(false);
   const [activeNotes, setActiveNotes] = useState([]);
   const [activeMode, setActiveMode] = useState(null); // null | 'camera' | 'music' | 'instrument'
+  const [activeSwatch, setActiveSwatch] = useState(0);
 
   // Refs to break circular dependency between hooks
   const spotifyRef = useRef(null);
@@ -35,7 +102,7 @@ export default function App() {
   const cameraRef = useRef(null);
 
   // Theme accent color follows active instrument
-  const themeColor = INSTRUMENT_COLORS[audio.instrument] || '#00FFFF';
+  const themeColor = INSTRUMENT_COLORS[audio.instrument] || '#9333EA';
 
   // Apply CSS variable for theme color
   useEffect(() => {
@@ -165,6 +232,13 @@ export default function App() {
   spotifyRef.current = spotify;
   bleRef.current = ble;
 
+  // Send active instrument to watch on connect
+  useEffect(() => {
+    if (ble.connected) {
+      ble.sendToWatch(`INSTRUMENT:${audio.instrument}`);
+    }
+  }, [ble.connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Stop all notes on BLE disconnect
   useEffect(() => {
     if (!ble.connected) {
@@ -173,6 +247,16 @@ export default function App() {
       setActiveMode(null);
     }
   }, [ble.connected, audio.stopAllNotes]);
+
+  // ── Swatch tap handler ──────────────────────────────────────
+  const selectSwatch = useCallback(
+    (id) => {
+      setActiveSwatch(id);
+      bleRef.current?.sendToWatch(`SWATCH:${id}`);
+      addLog(`SWATCH → ${SWATCHES[id]?.name}`);
+    },
+    [addLog]
+  );
 
   // ── UI ──────────────────────────────────────────────────────
   return (
@@ -257,7 +341,66 @@ export default function App() {
           </section>
         )}
 
-        {/* ── INSTRUMENT VISUALIZER (show when instrument mode or no mode) ── */}
+        {/* ── EXIT BUTTON (top-left, when in a mode) ── */}
+        {activeMode && (
+          <button
+            onClick={() => exitMode(activeMode)}
+            style={{ color: '#444444', fontSize: '12px' }}
+            className="self-start"
+          >
+            ← Exit
+          </button>
+        )}
+
+        {/* ── SWATCH SELECTOR (when connected, no active mode) ── */}
+        {ble.connected && activeMode === null && (
+          <section>
+            <p
+              className="text-[10px] uppercase tracking-widest mb-3"
+              style={{ color: 'var(--text-dim)' }}
+            >
+              Watch Face
+            </p>
+            <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollSnapType: 'x mandatory' }}>
+              {SWATCHES.map((sw) => (
+                <button
+                  key={sw.id}
+                  onClick={() => selectSwatch(sw.id)}
+                  className="flex flex-col items-center gap-1.5 flex-shrink-0"
+                  style={{ scrollSnapAlign: 'start' }}
+                >
+                  <div
+                    className="w-[60px] h-[60px] rounded-full flex items-center justify-center transition-all"
+                    style={{
+                      background: '#000',
+                      border:
+                        activeSwatch === sw.id
+                          ? '2px solid #fff'
+                          : '2px solid #222',
+                      boxShadow:
+                        activeSwatch === sw.id
+                          ? `0 0 12px ${sw.color}30`
+                          : 'none',
+                    }}
+                  >
+                    <SwatchPreview id={sw.id} />
+                  </div>
+                  <span
+                    className="text-[10px]"
+                    style={{
+                      color:
+                        activeSwatch === sw.id ? '#fff' : 'var(--text-dim)',
+                    }}
+                  >
+                    {sw.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── INSTRUMENT VISUALIZER (instrument mode or default) ── */}
         {(activeMode === null || activeMode === 'instrument') && (
           <section>
             <InstrumentVisualizer
@@ -267,10 +410,16 @@ export default function App() {
           </section>
         )}
 
-        {/* ── INSTRUMENT SELECTOR (show when instrument mode or no mode) ── */}
-        {(activeMode === null || activeMode === 'instrument') && (
+        {/* ── INSTRUMENT PICKER — radio button style (default view) ── */}
+        {activeMode === null && (
           <section>
-            <div className="flex justify-center gap-3">
+            <p
+              className="text-[10px] uppercase tracking-widest mb-3"
+              style={{ color: 'var(--text-dim)' }}
+            >
+              Instrument
+            </p>
+            <div className="flex flex-col gap-2">
               {audio.instruments.map((name) => {
                 const isActive = audio.instrument === name;
                 const color = INSTRUMENT_COLORS[name];
@@ -280,27 +429,43 @@ export default function App() {
                     onClick={() => {
                       audio.setInstrument(name);
                       setActiveNotes([]);
-                      // Tell watch about instrument change
                       bleRef.current?.sendToWatch(`INSTRUMENT:${name}`);
                     }}
-                    className="flex flex-col items-center gap-1.5 transition"
+                    className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all"
+                    style={{
+                      background: isActive ? '#111' : 'transparent',
+                      border: isActive
+                        ? `1px solid ${color}40`
+                        : '1px solid transparent',
+                    }}
                   >
+                    {/* Radio indicator */}
                     <div
-                      className="w-[52px] h-[52px] rounded-full flex items-center justify-center transition-all"
+                      className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
                       style={{
-                        background: isActive ? '#111' : '#0A0A0A',
                         border: isActive
                           ? `2px solid ${color}`
-                          : '2px solid #222',
-                        boxShadow: isActive ? `0 0 14px ${color}40` : 'none',
-                        color: isActive ? color : '#555555',
+                          : '2px solid #333',
                       }}
+                    >
+                      {isActive && (
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ background: color }}
+                        />
+                      )}
+                    </div>
+                    {/* Icon */}
+                    <div
+                      className="w-8 h-8 flex items-center justify-center flex-shrink-0"
+                      style={{ color: isActive ? color : '#555' }}
                     >
                       {InstrumentSVGs[name]}
                     </div>
+                    {/* Label */}
                     <span
-                      className="text-[10px] font-medium"
-                      style={{ color: isActive ? color : 'var(--text-dim)' }}
+                      className="text-sm font-medium"
+                      style={{ color: isActive ? '#E5E5E5' : 'var(--text-dim)' }}
                     >
                       {name}
                     </span>
@@ -311,28 +476,7 @@ export default function App() {
           </section>
         )}
 
-        {/* ── EXIT BUTTON (when in a mode) ── */}
-        {activeMode && (
-          <div className="flex justify-center">
-            <button
-              onClick={() => exitMode(activeMode)}
-              style={{
-                background: 'transparent',
-                border: '1px solid #333',
-                borderRadius: '20px',
-                color: '#666',
-                padding: '6px 16px',
-                fontSize: '12px',
-                cursor: 'pointer',
-                marginTop: '8px',
-              }}
-            >
-              Exit {activeMode}
-            </button>
-          </div>
-        )}
-
-        {/* ── SPOTIFY (show when music mode or no mode) ── */}
+        {/* ── SPOTIFY (music mode or default) ── */}
         {(activeMode === null || activeMode === 'music') && (
           <section>
             {/* STATE 1: disconnected */}
@@ -474,18 +618,17 @@ export default function App() {
       {cameraVisible && (
         <div className="fixed inset-0 bg-black z-50 flex flex-col">
           <div className="flex items-center justify-between px-4 py-3">
+            <button
+              onClick={() => exitMode('camera')}
+              style={{ color: '#444444', fontSize: '12px' }}
+            >
+              ← Exit
+            </button>
             <div className="flex items-center gap-2">
               <Icon name="camera_alt" className="icon-sm" />
               <span className="text-sm font-medium">Camera</span>
             </div>
-            <button
-              onClick={() => exitMode('camera')}
-            >
-              <Icon
-                name="close"
-                className="icon-sm hover:text-white transition"
-              />
-            </button>
+            <div className="w-12" />
           </div>
           <div className="flex-1 flex items-center justify-center px-4 pb-4">
             <Camera

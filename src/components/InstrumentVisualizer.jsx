@@ -1,14 +1,12 @@
 import { useRef, useEffect } from 'react';
 
 const COLORS = {
-  Piano:      '#00FFFF',
-  Harmonica:  '#4FC3F7',
-  Viola:      '#9333EA',
-  Flute:      '#00FF88',
-  Percussion: '#FF5722',
+  Viola:     '#9333EA',
+  Saxophone: '#FF8C00',
+  Custom:    '#888888',
 };
 
-export default function InstrumentVisualizer({ activeNotes = [], instrument = 'Piano' }) {
+export default function InstrumentVisualizer({ activeNotes = [], instrument = 'Viola' }) {
   const canvasRef = useRef(null);
   const animRef = useRef(null);
 
@@ -16,7 +14,7 @@ export default function InstrumentVisualizer({ activeNotes = [], instrument = 'P
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const color = COLORS[instrument] || '#00FFFF';
+    const color = COLORS[instrument] || '#9333EA';
 
     // Parse hex → rgb for alpha compositing
     const r = parseInt(color.slice(1, 3), 16);
